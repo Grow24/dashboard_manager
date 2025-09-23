@@ -1,0 +1,10 @@
+
+.react-grid-placeholder {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+.react-grid-placeholder {
+  background: none !important;
+  border: 2px dashed #ccc !important;
+}

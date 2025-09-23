@@ -1,0 +1,261 @@
+.dashboard-popup-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.dashboard-popup {
+  background: white;
+  border-radius: 8px;
+  width: 800px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-popup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  border-bottom: 1px solid #ddd;
+}
+
+.close-button {
+  background: transparent;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.dashboard-popup-tabs {
+  display: flex;
+  border-bottom: 1px solid #ddd;
+}
+
+.tab-button {
+  flex: 1;
+  padding: 12px 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  border-bottom: 3px solid transparent;
+  transition: border-color 0.3s ease;
+}
+
+.tab-button.active {
+  border-color: #007bff;
+  color: #007bff;
+}
+
+.dashboard-popup-content {
+  padding: 16px 24px;
+  flex-grow: 1;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-input, .form-textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+}
+.preview-page {
+  box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
+  cursor: default;
+}
+
+.preview-pane {
+  box-shadow: 0 0 5px rgba(40, 167, 69, 0.5);
+  cursor: default;
+}
+.pages-selection {
+  display: flex;
+  gap: 24px;
+}
+
+.pages-list, .selected-pages {
+  flex: 1;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.page-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  border-bottom: 1px solid #eee;
+}
+
+.page-info h4 {
+  margin: 0 0 4px 0;
+  font-size: 16px;
+}
+
+.page-info p {
+  margin: 0;
+  font-size: 12px;
+  color: #666;
+}
+
+.page-actions button {
+  background: #007bff;
+  border: none;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.page-actions button.btn-remove {
+  background: #dc3545;
+}
+
+.pages-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.selected-page-card {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 8px;
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+}
+
+.page-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.remove-page-btn {
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: #dc3545;
+  line-height: 1;
+}
+
+.page-card-content {
+  margin-top: 8px;
+}
+
+.position-controls, .size-controls {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.control-group {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.position-input, .size-input {
+  padding: 6px 8px;
+  font-size: 14px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.pane-creation {
+  max-width: 400px;
+}
+
+.btn-add-pane, .btn-create, .btn-cancel {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+  margin-top: 12px;
+}
+
+.btn-add-pane {
+  background-color: #28a745;
+  color: white;
+}
+
+.btn-create {
+  background-color: #007bff;
+  color: white;
+  margin-left: 8px;
+}
+
+.btn-cancel {
+  background-color: #6c757d;
+  color: white;
+}
+
+.created-panes {
+  margin-top: 16px;
+}
+
+.panes-list {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.pane-item {
+  border-bottom: 1px solid #eee;
+  padding: 8px 0;
+}
+
+.pane-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.remove-pane-btn {
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: #dc3545;
+  line-height: 1;
+}
+
+.pane-content {
+  font-size: 14px;
+  color: #333;
+  margin-top: 4px;
+}
+
+.pane-dimensions {
+  font-size: 12px;
+  color: #666;
+  margin-top: 4px;
+}

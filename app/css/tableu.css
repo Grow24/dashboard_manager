@@ -1,0 +1,556 @@
+.app {
+  display: flex;
+  height: 100vh;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  user-select: none;
+  background: #f5f5f5;
+}
+
+/* Sidebar widths */
+.sidebar {
+  background: #fff;
+  border: 1px solid #ddd;
+  padding: 10px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.left-sidebar {
+  width: 180px; /* Adjust this value as needed, e.g., 180px or 200px */
+  min-width: 180px;
+  max-width: 180px;
+  overflow-y: auto; /* Keep scroll if content overflows */
+}
+
+.right-sidebar {
+  width: 15%;
+  border-left: 2px solid #ccc;
+  gap: 10px;
+}
+
+/* Center panels */
+.center-left-panel {
+  width: 15%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-right: 2px solid #ccc;
+  padding: 10px;
+  box-sizing: border-box;
+  background: #fff;
+  overflow-y: auto;
+}
+
+.center-right-panel {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  box-sizing: border-box;
+  background: #fff;
+  overflow-y: auto;
+}
+
+/* Columns and Rows container */
+.columns-rows-container {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+/* Slots */
+.slot {
+  min-height: 80px;
+  border: 2px dashed #bbb;
+  border-radius: 6px;
+  padding: 8px;
+  background: #fafafa;
+  transition: background-color 0.2s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.slot.hovered {
+  background-color: #d0f0fd;
+  border-color: #00aaff;
+}
+
+.slot-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+  font-size: 15px;
+  color: #333;
+}
+
+.slot-placeholder {
+  color: #999;
+  font-style: italic;
+  font-size: 13px;
+  margin-top: auto;
+  margin-bottom: auto;
+  text-align: center;
+}
+
+.slot-item {
+  background: #e0f7ff;
+  margin: 2px 0;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Fields list */
+.fields-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.field {
+  padding: 6px 8px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  transition: background-color 0.2s ease;
+}
+
+.field.dragging {
+  opacity: 0.5;
+}
+
+.icon {
+  font-size: 18px;
+}
+
+/* Show Me Panel */
+.showme-panel {
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: #f0f8ff;
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.showme-title {
+  font-weight: 700;
+  margin-bottom: 8px;
+  font-size: 16px;
+  color: #007acc;
+}
+
+.chart-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+}
+
+.chart-option {
+  padding: 8px 10px;
+  background: #007acc;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  text-align: left;
+  transition: background-color 0.2s ease;
+}
+
+.chart-option.selected,
+.chart-option:hover {
+  background: #005fa3;
+}
+
+/* Context Menu */
+.context-menu {
+  position: absolute;
+  background: white;
+  border: 1px solid #ccc;
+  box-shadow: 2px 2px 6px rgba(0, 0, 0, 0.15);
+  list-style: none;
+  padding: 6px 0;
+  margin: 0;
+  z-index: 1000;
+  width: 150px;
+  border-radius: 4px;
+}
+
+.context-menu li {
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.context-menu li:hover {
+  background-color: #007acc;
+  color: white;
+}
+
+/* Sheet Visualization */
+.sheet-visualization {
+  flex-grow: 1;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+}
+
+.sheet-title {
+  font-weight: 700;
+  padding: 8px 12px;
+  border-bottom: 1px solid #ddd;
+  font-size: 16px;
+  color: #333;
+}
+
+.sheet-chart-area {
+  flex-grow: 1;
+  padding: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.chart-placeholder {
+  color: #999;
+  font-style: italic;
+  font-size: 14px;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.data-table th,
+.data-table td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: left;
+}
+
+.data-table th {
+  background-color: #f2f2f2;
+  font-weight: 600;
+}
+
+/* Popup overlay */
+.filter-popup-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+/* Popup container */
+.filter-popup {
+  background: white;
+  border-radius: 8px;
+  padding: 20px 24px;
+  width: 320px;
+  max-width: 90vw;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Popup header */
+.filter-popup h3 {
+  margin-bottom: 16px;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #111827; /* Tailwind gray-900 */
+}
+
+/* Buttons container */
+.filter-popup-buttons {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+/* Buttons */
+.filter-popup-buttons button {
+  background-color: #3b82f6; /* Tailwind blue-500 */
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.filter-popup-buttons button:hover {
+  background-color: #2563eb; /* Tailwind blue-600 */
+}
+
+.filter-popup-buttons button:last-child {
+  background-color: #e5e7eb; /* Tailwind gray-200 */
+  color: #374151; /* Tailwind gray-700 */
+  margin-left: 12px;
+}
+
+.filter-popup-buttons button:last-child:hover {
+  background-color: #d1d5db; /* Tailwind gray-300 */
+}
+
+/* Select box styling for single select fallback */
+.filter-popup select {
+  border: 1px solid #d1d5db; /* Tailwind gray-300 */
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 1rem;
+  width: 100%;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+/* Input box styling for text fallback */
+.filter-popup input[type="text"] {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 1rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Combobox container overrides */
+.relative.w-full.cursor-default.overflow-hidden.rounded-lg.bg-white.text-left.border.border-gray-300.shadow-sm.focus-within\:ring-2.focus-within\:ring-blue-400 {
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  box-shadow: none;
+  padding-left: 0.75rem;
+  padding-right: 2.5rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  font-size: 1rem;
+  color: #111827;
+}
+
+/* Combobox input */
+.relative.w-full.cursor-default.overflow-hidden.rounded-lg.bg-white.text-left.border.border-gray-300.shadow-sm.focus-within\:ring-2.focus-within\:ring-blue-400 input {
+  outline: none;
+}
+
+/* Combobox options */
+.combobox-options {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: white;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  margin-top: 4px;
+  z-index: 1001;
+}
+
+/* Option item */
+.combobox-option {
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.combobox-option:hover,
+.combobox-option[aria-selected="true"] {
+  background-color: #3b82f6;
+  color: white;
+  font-weight: 600;
+}
+
+/* Scrollbar for options */
+.combobox-options::-webkit-scrollbar {
+  width: 6px;
+}
+
+.combobox-options::-webkit-scrollbar-thumb {
+  background-color: #9ca3af;
+  border-radius: 3px;
+}
+
+.footer-tabs {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: #f0f0f0;
+  border-top: 1px solid #ccc;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  padding: 8px 0;
+  z-index: 1000;
+}
+
+.footer-tab {
+  background: white;
+  border: 1px solid #ccc;
+  padding: 6px 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.footer-tab.active {
+  background: #007bff;
+  color: white;
+  border-color: #007bff;
+}
+
+.showme-panel-container {
+  margin: 10px 0;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background-color: #fafafa;
+}
+/* Window Function Configuration Panel */
+.window-function-config {
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 16px 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  max-width: 320px;
+  margin-top: 20px;
+}
+
+.window-function-config h4 {
+  margin-bottom: 12px;
+  font-weight: 600;
+  color: #333;
+  font-size: 1.1rem;
+  border-bottom: 1px solid #ddd;
+  padding-bottom: 6px;
+}
+
+.window-function-config label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: #555;
+  font-size: 0.9rem;
+}
+
+.window-function-config select {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  font-size: 0.95rem;
+  transition: border-color 0.3s ease;
+  cursor: pointer;
+}
+
+.window-function-config select:hover,
+.window-function-config select:focus {
+  border-color: #3b82f6; /* Tailwind blue-500 */
+  outline: none;
+  box-shadow: 0 0 5px rgba(59, 130, 246, 0.5);
+}
+
+.window-function-config button {
+  margin-top: 14px;
+  background-color: #3b82f6;
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  width: 100%;
+  font-size: 1rem;
+}
+
+.window-function-config button:hover {
+  background-color: #2563eb; /* Darker blue */
+}
+
+/* Popup Overlay */
+.popup-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0,0,0,0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+/* Popup Content */
+.popup-content {
+  background-color: white;
+  padding: 24px 28px;
+  border-radius: 10px;
+  width: 420px;
+  max-width: 90%;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.popup-content h3 {
+  margin-bottom: 16px;
+  font-weight: 700;
+  font-size: 1.3rem;
+  color: #222;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 8px;
+}
+
+.popup-content pre {
+  background-color: #f3f4f6;
+  padding: 14px 16px;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  color: #1f2937;
+  overflow-x: auto;
+  max-height: 220px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  box-shadow: inset 0 0 5px rgba(0,0,0,0.05);
+}
+
+.popup-content button {
+  margin-top: 18px;
+  background-color: #ef4444; /* Tailwind red-500 */
+  color: white;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  width: 100%;
+  font-size: 1rem;
+}
+
+.popup-content button:hover {
+  background-color: #b91c1c; /* Darker red */
+}
