@@ -40,7 +40,7 @@ interface Filter {
   querypreview?: string;
   isRankingFilter?: boolean;
   queryPreview?: string;
-filterApply?: 'Live' | 'Manual';
+  filterApply?: 'Live' | 'Manual';
 }
 
 interface DynamicOption {

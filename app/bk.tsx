@@ -103,7 +103,7 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     }
 
     if (!text) {
-      // @ts-ignore
+      // @ts-expect-error - text may be null
       return null;
     }
 
@@ -300,6 +300,123 @@ const WidgetComponent: React.FC<{ widget: Widget; dataSource?: DataSource; apiDa
     return (
       <div className={`flex items-center ${trendColor} text-sm ml-2`}>
         {arrow} <span className="ml-1">{String(trend)}</span>
+      </div>
+    );
+  };
+
+  // Table Widget Component (separate component to use hooks)
+  const TableWidgetContent: React.FC<{ 
+    title: string; 
+    normalized: NormalizedResponse | null; 
+    apiData?: any; 
+    cfg: any;
+  }> = ({ title, normalized, apiData, cfg }) => {
+    const t = normalized && normalized.kind === 'table' ? normalized : (apiData?.normalized && apiData.normalized.kind === 'table' ? apiData.normalized : null);
+    const tableColumns = t ? t.columns : (apiData?.columns ?? cfg.columns ?? ['Column']);
+    const tableRows = t ? t.rows : (apiData?.rows ?? cfg.rows ?? []);
+
+    // --- Sorting & Pagination State ---
+    const [sortConfig, setSortConfig] = React.useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+    const [currentPage, setCurrentPage] = React.useState(1);
+    const rowsPerPage = 5; // adjust as needed
+
+    // Apply sorting
+    const sortedRows = React.useMemo(() => {
+      if (!sortConfig) return tableRows;
+      return [...tableRows].sort((a, b) => {
+        const aValue = a[sortConfig.key];
+        const bValue = b[sortConfig.key];
+        if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }, [tableRows, sortConfig]);
+
+    // Apply pagination
+    const paginatedRows = React.useMemo(() => {
+      const start = (currentPage - 1) * rowsPerPage;
+      return sortedRows.slice(start, start + rowsPerPage);
+    }, [sortedRows, currentPage]);
+
+    const totalPages = Math.ceil(sortedRows.length / rowsPerPage);
+
+    const requestSort = (key: string) => {
+      let direction: 'asc' | 'desc' = 'asc';
+      if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+        direction = 'desc';
+      }
+      setSortConfig({ key, direction });
+    };
+
+    return (
+      <div className="p-4">
+        <h4 className="text-lg font-semibold">{title}</h4>
+        <div className="mt-2 overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                {tableColumns.map((h: string, i: number) => (
+                  <th
+                    key={i}
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                    onClick={() => requestSort(h)}
+                  >
+                    <div className="flex items-center">
+                      {h}
+                      {sortConfig?.key === h ? (
+                        <span className="ml-1">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                      ) : null}
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {paginatedRows.length === 0 ? (
+                <tr>
+                  <td colSpan={tableColumns.length} className="px-6 py-4 text-center text-gray-500">
+                    No data available
+                  </td>
+                </tr>
+              ) : (
+                paginatedRows.map((r: any, idx: number) => (
+                  <tr key={idx}>
+                    {tableColumns.map((c: string, ci: number) => (
+                      <td key={ci} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {r[c] ?? r[c.toLowerCase()] ?? '-'}
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="mt-4 flex justify-between items-center">
+            <div className="text-sm text-gray-600">
+              Page {currentPage} of {totalPages}
+            </div>
+            <div className="flex gap-2">
+              <button
+                className={`px-3 py-1 rounded ${currentPage === 1 ? 'bg-gray-200 cursor-not-allowed' : 'bg-gray-300'}`}
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              >
+                Previous
+              </button>
+              <button
+                className={`px-3 py-1 rounded ${currentPage === totalPages ? 'bg-gray-200 cursor-not-allowed' : 'bg-gray-300'}`}
+                disabled={currentPage === totalPages}
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -574,119 +691,9 @@ const WidgetComponent: React.FC<{ widget: Widget; dataSource?: DataSource; apiDa
     }
 
     // Table
-    // Inside WidgetComponent renderWidgetContent()
-
-// TABLE
-if (widget.visual_type === 'TABLE') {
-  const t = normalized && normalized.kind === 'table' ? normalized : (apiData?.normalized && apiData.normalized.kind === 'table' ? apiData.normalized : null);
-  const tableColumns = t ? t.columns : (apiData?.columns ?? cfg.columns ?? ['Column']);
-  const tableRows = t ? t.rows : (apiData?.rows ?? cfg.rows ?? []);
-
-  // --- Sorting & Pagination State ---
-  const [sortConfig, setSortConfig] = React.useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
-  const [currentPage, setCurrentPage] = React.useState(1);
-  const rowsPerPage = 5; // adjust as needed
-
-  // Apply sorting
-  const sortedRows = React.useMemo(() => {
-    if (!sortConfig) return tableRows;
-    return [...tableRows].sort((a, b) => {
-      const aValue = a[sortConfig.key];
-      const bValue = b[sortConfig.key];
-      if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
-      return 0;
-    });
-  }, [tableRows, sortConfig]);
-
-  // Apply pagination
-  const paginatedRows = React.useMemo(() => {
-    const start = (currentPage - 1) * rowsPerPage;
-    return sortedRows.slice(start, start + rowsPerPage);
-  }, [sortedRows, currentPage]);
-
-  const totalPages = Math.ceil(sortedRows.length / rowsPerPage);
-
-  const requestSort = (key: string) => {
-    let direction: 'asc' | 'desc' = 'asc';
-    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
-      direction = 'desc';
+    if (widget.visual_type === 'TABLE') {
+      return <TableWidgetContent title={widget.title} normalized={normalized} apiData={apiData} cfg={cfg} />;
     }
-    setSortConfig({ key, direction });
-  };
-
-  return (
-    <div className="p-4">
-      <h4 className="text-lg font-semibold">{widget.title}</h4>
-      <div className="mt-2 overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              {tableColumns.map((h: string, i: number) => (
-                <th
-                  key={i}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                  onClick={() => requestSort(h)}
-                >
-                  <div className="flex items-center">
-                    {h}
-                    {sortConfig?.key === h ? (
-                      <span className="ml-1">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                    ) : null}
-                  </div>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {paginatedRows.length === 0 ? (
-              <tr>
-                <td colSpan={tableColumns.length} className="px-6 py-4 text-center text-gray-500">
-                  No data available
-                </td>
-              </tr>
-            ) : (
-              paginatedRows.map((r: any, idx: number) => (
-                <tr key={idx}>
-                  {tableColumns.map((c: string, ci: number) => (
-                    <td key={ci} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {r[c] ?? r[c.toLowerCase()] ?? '-'}
-                    </td>
-                  ))}
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Pagination Controls */}
-      {totalPages > 1 && (
-        <div className="mt-4 flex justify-between items-center">
-          <div className="text-sm text-gray-600">
-            Page {currentPage} of {totalPages}
-          </div>
-          <div className="flex gap-2">
-            <button
-              className={`px-3 py-1 rounded ${currentPage === 1 ? 'bg-gray-200 cursor-not-allowed' : 'bg-gray-300'}`}
-              disabled={currentPage === 1}
-              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-            >
-              Previous
-            </button>
-            <button
-              className={`px-3 py-1 rounded ${currentPage === totalPages ? 'bg-gray-200 cursor-not-allowed' : 'bg-gray-300'}`}
-              disabled={currentPage === totalPages}
-              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
     // Text
    if (widget.visual_type === 'TEXT') {

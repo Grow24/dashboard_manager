@@ -71,7 +71,7 @@ interface HoverCardProps {
   onSelect: () => void;
 }
 
-const HoverCard: React.FC<HoverCardProps> = ({
+function HoverCard({
   title,
   value,
   width,
@@ -79,11 +79,12 @@ const HoverCard: React.FC<HoverCardProps> = ({
   onResize,
   selected,
   onSelect,
-}) => {
+}: HoverCardProps): JSX.Element {
   const [hovered, setHovered] = useState(false);
   const resizing = useRef(false);
   const resizeStart = useRef({ x: 0, y: 0 });
   const sizeStart = useRef({ width, height });
+  const cornerRef = useRef<'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'>('bottom-right');
   const onResizeRef = useRef(onResize);
 
   useEffect(() => {
@@ -91,98 +92,64 @@ const HoverCard: React.FC<HoverCardProps> = ({
   }, [onResize]);
 
   useEffect(() => {
-    function onMouseMove(e: MouseEvent) {
+    sizeStart.current = { width, height };
+  }, [width, height]);
+
+  const handleResizeStart = (e: React.MouseEvent, corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right') => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizing.current = true;
+    cornerRef.current = corner;
+    resizeStart.current = { x: e.clientX, y: e.clientY };
+    sizeStart.current = { width, height };
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
       if (!resizing.current) return;
-      const dx = e.clientX - resizeStart.current.x;
-      const dy = e.clientY - resizeStart.current.y;
-      const newWidth = Math.max(150, sizeStart.current.width + dx);
-      const newHeight = Math.max(100, sizeStart.current.height + dy);
+      const dx = moveEvent.clientX - resizeStart.current.x;
+      const dy = moveEvent.clientY - resizeStart.current.y;
+      let newWidth = sizeStart.current.width;
+      let newHeight = sizeStart.current.height;
+
+      if (cornerRef.current === 'bottom-right') {
+        newWidth = Math.max(150, sizeStart.current.width + dx);
+        newHeight = Math.max(100, sizeStart.current.height + dy);
+      } else if (cornerRef.current === 'bottom-left') {
+        newWidth = Math.max(150, sizeStart.current.width - dx);
+        newHeight = Math.max(100, sizeStart.current.height + dy);
+      } else if (cornerRef.current === 'top-right') {
+        newWidth = Math.max(150, sizeStart.current.width + dx);
+        newHeight = Math.max(100, sizeStart.current.height - dy);
+      } else if (cornerRef.current === 'top-left') {
+        newWidth = Math.max(150, sizeStart.current.width - dx);
+        newHeight = Math.max(100, sizeStart.current.height - dy);
+      }
+
       onResizeRef.current(newWidth, newHeight);
-    }
-    function onMouseUp() {
-      resizing.current = false;
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-    }
-
-    if (resizing.current) {
-      window.addEventListener('mousemove', onMouseMove);
-      window.addEventListener('mouseup', onMouseUp);
-    }
-
-    return () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
     };
-  }, [resizing.current]);
 
-  const onResizeMouseDown = (e: React.MouseEvent, corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right') => {
-  e.preventDefault();
-  e.stopPropagation();
-  resizing.current = true;
-  resizeStart.current = { x: e.clientX, y: e.clientY };
-  sizeStart.current = { width, height };
-  positionStart.current = { top: cardTop, left: cardLeft }; // You need to track card's current top and left
+    const handleMouseUp = () => {
+      resizing.current = false;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
 
-  function onMouseMove(e: MouseEvent) {
-    if (!resizing.current) return;
-    const dx = e.clientX - resizeStart.current.x;
-    const dy = e.clientY - resizeStart.current.y;
-
-    let newWidth = sizeStart.current.width;
-    let newHeight = sizeStart.current.height;
-    let newTop = positionStart.current.top;
-    let newLeft = positionStart.current.left;
-
-    switch (corner) {
-      case 'bottom-right':
-        newWidth = Math.max(150, sizeStart.current.width + dx);
-        newHeight = Math.max(100, sizeStart.current.height + dy);
-        break;
-      case 'bottom-left':
-        newWidth = Math.max(150, sizeStart.current.width - dx);
-        newHeight = Math.max(100, sizeStart.current.height + dy);
-        newLeft = positionStart.current.left + dx;
-        break;
-      case 'top-right':
-        newWidth = Math.max(150, sizeStart.current.width + dx);
-        newHeight = Math.max(100, sizeStart.current.height - dy);
-        newTop = positionStart.current.top + dy;
-        break;
-      case 'top-left':
-        newWidth = Math.max(150, sizeStart.current.width - dx);
-        newHeight = Math.max(100, sizeStart.current.height - dy);
-        newLeft = positionStart.current.left + dx;
-        newTop = positionStart.current.top + dy;
-        break;
-    }
-
-    // Update position and size
-    onResizeRef.current(newWidth, newHeight, newTop, newLeft);
-  }
-
-  function onMouseUp() {
-    resizing.current = false;
-    window.removeEventListener('mousemove', onMouseMove);
-    window.removeEventListener('mouseup', onMouseUp);
-  }
-
-  window.addEventListener('mousemove', onMouseMove);
-  window.addEventListener('mouseup', onMouseUp);
-};
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
 
   // Show hover effects only if no card is selected
   const showHoverEffects = !selected && hovered;
 
+  let borderClass = 'border-transparent';
+  if (selected) {
+    borderClass = 'border-solid border-indigo-700';
+  } else if (showHoverEffects) {
+    borderClass = 'border-dotted border-indigo-500';
+  }
+
   return (
     <div 
-      className={`relative bg-white rounded-lg shadow p-6 cursor-default select-none border-2 ${
-        selected
-          ? 'border-solid border-indigo-700'
-          : showHoverEffects
-          ? 'border-dotted border-indigo-500'
-          : 'border-transparent'
-      }`}
+      className={`relative bg-white rounded-lg shadow p-6 cursor-default select-none border-2 ${borderClass}`}
       style={{ width, height, flexShrink: 0, margin: 8, userSelect: 'none' }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -240,31 +207,34 @@ const HoverCard: React.FC<HoverCardProps> = ({
       <p className="text-sm font-medium text-gray-500">{title}</p>
       <p className="mt-2 text-2xl font-semibold text-gray-900">{value}</p>
 
-      {/* Resize handle bottom-right */}
+      {/* Resize handles */}
       {(selected || showHoverEffects) && (
-        <div
-      className="absolute top-0 left-0 w-4 h-4 bg-indigo-500 rounded cursor-nwse-resize"
-      onMouseDown={e => onResizeMouseDown(e, 'top-left')}
-    />
-    {/* Top-right */}
-    <div
-      className="absolute top-0 right-0 w-4 h-4 bg-indigo-500 rounded cursor-nesw-resize"
-      onMouseDown={e => onResizeMouseDown(e, 'top-right')}
-    />
-    {/* Bottom-left */}
-    <div
-      className="absolute bottom-0 left-0 w-4 h-4 bg-indigo-500 rounded cursor-nesw-resize"
-      onMouseDown={e => onResizeMouseDown(e, 'bottom-left')}
-    />
-    {/* Bottom-right */}
-    <div
-      className="absolute bottom-0 right-0 w-4 h-4 bg-indigo-500 rounded cursor-nwse-resize"
-      onMouseDown={e => onResizeMouseDown(e, 'bottom-right')}
-    />
+        <>
+          {/* Top-left */}
+          <div
+            className="absolute top-0 left-0 w-4 h-4 bg-indigo-500 rounded cursor-nwse-resize"
+            onMouseDown={e => handleResizeStart(e, 'top-left')}
+          />
+          {/* Top-right */}
+          <div
+            className="absolute top-0 right-0 w-4 h-4 bg-indigo-500 rounded cursor-nesw-resize"
+            onMouseDown={e => handleResizeStart(e, 'top-right')}
+          />
+          {/* Bottom-left */}
+          <div
+            className="absolute bottom-0 left-0 w-4 h-4 bg-indigo-500 rounded cursor-nesw-resize"
+            onMouseDown={e => handleResizeStart(e, 'bottom-left')}
+          />
+          {/* Bottom-right */}
+          <div
+            className="absolute bottom-0 right-0 w-4 h-4 bg-indigo-500 rounded cursor-nwse-resize"
+            onMouseDown={e => handleResizeStart(e, 'bottom-right')}
+          />
+        </>
       )}
     </div>
   );
-};
+}
 
 const NewPageSliders = () => {
   const [collapsedFields, setCollapsedFields] = useState(false);
@@ -391,7 +361,7 @@ const NewPageSliders = () => {
                   name="visualization"
                   className="form-radio accent-indigo-600"
                   checked={selectedVisualization === vis}
-                  onChange={() => setSelectedVisualization(vis as any)}
+                  onChange={() => setSelectedVisualization(vis as 'Bar Chart' | 'Line Chart' | 'Pie Chart' | 'Table')}
                   disabled={!selectedField}
                 />
                 <span>{vis}</span>
@@ -470,7 +440,13 @@ export default function Page() {
     );
   };
 
-  const menuItems = [
+  type MenuItem = {
+    name: string;
+    icon: React.ReactNode;
+    subMenu?: Array<{ name: string }>;
+  };
+
+  const menuItems: MenuItem[] = [
     { name: 'Dashboard', icon: <FaTachometerAlt /> },
     {
       name: 'Projects',
@@ -494,7 +470,7 @@ export default function Page() {
     { name: 'New Page', icon: <FaFile /> },
   ];
 
-  const renderMenuItem = (item: any) => {
+  const renderMenuItem = (item: MenuItem) => {
     const isExpanded = expandedMenus.includes(item.name);
     const hasSubMenu = Array.isArray(item.subMenu) && item.subMenu.length > 0;
 
@@ -527,7 +503,7 @@ export default function Page() {
 
         {!collapsed && hasSubMenu && isExpanded && (
           <div className="ml-8 flex flex-col space-y-1 mt-1">
-            {item.subMenu.map((sub: any) => (
+            {item.subMenu?.map((sub) => (
               <button
                 key={sub.name}
                 onClick={() => setSelectedMenu(sub.name)}

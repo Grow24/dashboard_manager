@@ -1154,7 +1154,9 @@ const panelRef = useRef(null);
                     className="w-full justify-start text-sm"
                     onClick={() => {
                       setMenuOpenGlobal(null);
-                      onMaximize && onMaximize(panelKey);
+                      if (onMaximize) {
+                        onMaximize(panelKey);
+                      }
                     }}
                   >
                     Maximize

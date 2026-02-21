@@ -1186,19 +1186,6 @@ const ManualConditionsTab = ({ definition, onChange, errors }) => {
   const [fieldSchema, setFieldSchema] = useState([]);
   const [isLoadingSchema, setIsLoadingSchema] = useState(false);
 
-  // Guard: ensure definition has a valid root
-  if (!definition || !definition.root) {
-    return (
-      <div className="p-4 text-sm text-muted-foreground">
-        Initializing filter definition...
-      </div>
-    );
-  }
-
-  useEffect(() => {
-    loadFieldSchema();
-  }, []);
-
   const loadFieldSchema = async () => {
     console.log('loadFieldSchema---------------');
     setIsLoadingSchema(true);
@@ -1211,6 +1198,21 @@ const ManualConditionsTab = ({ definition, onChange, errors }) => {
       setIsLoadingSchema(false);
     }
   };
+
+  useEffect(() => {
+    if (definition && definition.root) {
+      loadFieldSchema();
+    }
+  }, [definition]);
+
+  // Guard: ensure definition has a valid root
+  if (!definition || !definition.root) {
+    return (
+      <div className="p-4 text-sm text-muted-foreground">
+        Initializing filter definition...
+      </div>
+    );
+  }
 
   const handleAddCondition = (groupPath) => {
     const newDef = JSON.parse(JSON.stringify(definition));

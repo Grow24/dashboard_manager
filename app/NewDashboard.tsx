@@ -638,7 +638,9 @@ const Panel = ({
                     className="w-full justify-start text-sm"
                     onClick={() => {
                       setMenuOpenGlobal(null);
-                      onMaximize && onMaximize('panel1');
+                      if (onMaximize) {
+                        onMaximize('panel1');
+                      }
                     }}
                   >
                     Maximize

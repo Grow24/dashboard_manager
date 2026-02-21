@@ -52,10 +52,11 @@ const TableComponent = () => {
   return (
     <table {...getTableProps()} className="min-w-full table-auto">
       <thead>
-        {headerGroups.map((headerGroup) => (
-          <tr {...headerGroup.getHeaderGroupProps()}>
-            {headerGroup.headers.map((column) => (
+        {headerGroups.map((headerGroup, headerGroupIndex) => (
+          <tr key={headerGroupIndex} {...headerGroup.getHeaderGroupProps()}>
+            {headerGroup.headers.map((column, columnIndex) => (
               <th
+                key={columnIndex}
                 {...column.getHeaderProps()}
                 className="px-4 py-2 text-left bg-gray-100"
               >
@@ -66,13 +67,14 @@ const TableComponent = () => {
         ))}
       </thead>
       <tbody {...getTableBodyProps()}>
-        {rows.map((row) => {
+        {rows.map((row, rowIndex) => {
           prepareRow(row);
           return (
-            <tr {...row.getRowProps()}>
-              {row.cells.map((cell) => {
+            <tr key={rowIndex} {...row.getRowProps()}>
+              {row.cells.map((cell, cellIndex) => {
                 return (
                   <td
+                    key={cellIndex}
                     {...cell.getCellProps()}
                     className="px-4 py-2 border-b"
                   >
