@@ -540,7 +540,7 @@ const AdvancedWindowFunctionBuilder = ({ windowConfig, onChange, allFields, dime
 };
 
 /* ----------------- Window Function Preview Generator ----------------- */
-const generateWindowFunctionPreview = (w, dimensionFields = [], columnsSlot = [], rows = []) => {
+const generateWindowFunctionPreview = (w, _dimensionFields = [], _columnsSlot = [], _rows = []) => {
   if (!w.fn) return "SELECT ... -- Configure function first";
 
   let expr = w.fn;
@@ -763,7 +763,7 @@ const JoinBuilder = ({ selectedTables, tableColumnsMap, joins, setJoins, baseTab
 };
 
 /* ----------------- Multi-Level Nested Query Builder ----------------- */
-const MultiLevelNestedQueryBuilder = ({ queryConfig, onChange, dimensionFields, measureFields, selectedTables, baseTable }) => {
+const MultiLevelNestedQueryBuilder = ({ queryConfig, onChange, dimensionFields, measureFields, _selectedTables, baseTable }) => {
   const defaultCfg = {
     levels: [
       {
@@ -942,7 +942,7 @@ const MultiLevelNestedQueryBuilder = ({ queryConfig, onChange, dimensionFields, 
     updateLevel(levelId, { windows });
   };
 
-  const activeLevel = cfg.levels.find(l => l.id === cfg.activeLevel) || cfg.levels[0];
+  const _activeLevel = cfg.levels.find(l => l.id === cfg.activeLevel) || cfg.levels[0];
 
   const resetBuilder = () => {
     setCfg(defaultCfg);
@@ -1645,8 +1645,8 @@ const ChartRenderer = ({ chartType, data, xKey, yKey, apiData = [], calcConfig =
   }
 
   const sample = chartData[0] || {};
-  const xDataKey = findKeyFor(sample, xKey);
-  const yDataKey = findKeyFor(sample, yKey);
+  const _xDataKey = findKeyFor(sample, xKey);
+  const _yDataKey = findKeyFor(sample, yKey);
 
   // Process data: aggregate by xKey (Quarter), then apply running total if requested.
   const processDataForChart = () => {
@@ -1657,7 +1657,7 @@ const ChartRenderer = ({ chartType, data, xKey, yKey, apiData = [], calcConfig =
       frameSize = 0,
       direction = "FORWARD",
       lodScope = "INCLUDE",
-      lodFields = [],
+      _lodFields = [],
       originalData = [],
     } = calcConfig || {};
 
@@ -1860,7 +1860,7 @@ const APIIntegration = ({
       const list = data.tables || [];
       setTables(list);
       onTablesLoad(list);
-    } catch (e) {
+    } catch {
       const mockTables = ["users", "orders", "products", "categories"];
       setTables(mockTables);
       onTablesLoad(mockTables);
@@ -1872,7 +1872,7 @@ const APIIntegration = ({
       const res = await fetch(`${apiBase}/columns.php?table=${encodeURIComponent(tableName)}`);
       const data = await res.json();
       return data.columns || [];
-    } catch (e) {
+    } catch {
       const mock = {
         users: ["id", "name", "email", "created_at", "status"],
         orders: ["id", "user_id", "total", "status", "created_at"],
@@ -1899,7 +1899,7 @@ const APIIntegration = ({
       const data = await res.json();
       if (data.success) onDataLoad(data.data || []);
       else alert("Query execution failed: " + data.error);
-    } catch (e) {
+    } catch {
       alert("Error executing query. Check console for details.");
     }
     setLoading(false);
@@ -1992,7 +1992,7 @@ const App = () => {
   const [partitionKey, setPartitionKey] = useState("");
   const [pendingConfig, setPendingConfig] = useState(null);
 
-  const [availableTables, setAvailableTables] = useState([]);
+  const [_availableTables, setAvailableTables] = useState([]);
   const [tableColumnsMap, setTableColumnsMap] = useState({});
   const [selectedTables, setSelectedTables] = useState([]);
   const [baseTable, setBaseTable] = useState("");
@@ -2134,7 +2134,7 @@ const App = () => {
     () => Array.from(new Set(fields.filter((f) => f.type === "Measure").map((f) => f.name))),
     [fields]
   );
-  const allFieldNames = React.useMemo(() => Array.from(new Set(fields.map((f) => f.name))), [fields]);
+  const _allFieldNames = React.useMemo(() => Array.from(new Set(fields.map((f) => f.name))), [fields]);
 
   const xKey = xField || (columnsSlot.find((f) => f.type === "Dimension")?.name) || (rows.find((f) => f.type === "Dimension")?.name) || "";
   const yKey = yField || (columnsSlot.find((f) => f.type === "Measure")?.name) || (rows.find((f) => f.type === "Measure")?.name) || "";
@@ -2375,7 +2375,7 @@ const App = () => {
       return expr;
     };
 
-    const buildLevelSQL = (level, isOutermost = false) => {
+    const buildLevelSQL = (level, _isOutermost = false) => {
       const selectFields = [];
 
       if (level.select && level.select.length > 0) {
@@ -2446,7 +2446,7 @@ const App = () => {
     for (let i = 0; i < levels.length; i++) {
       const level = levels[i];
       const isOutermost = i === 0;
-      const isInnermost = i === levels.length - 1;
+      const _isInnermost = i === levels.length - 1;
 
       if (isOutermost) {
         sql = buildLevelSQL(level, true);
@@ -2508,13 +2508,13 @@ const App = () => {
     }
   };
 
-  const addField = (field) => {
+  const _addField = (field: { name: string }) => {
     if (!fields.find((f) => f.name === field.name)) {
       setFields((prev) => [...prev, field]);
     }
   };
 
-  const removeField = (field) => {
+  const _removeField = (field: { name: string }) => {
     setFields((prev) => prev.filter((f) => f.name !== field.name));
     setFilters((prev) => prev.filter((f) => f.name !== field.name));
     setColumnsSlot((prev) => prev.filter((f) => f.name !== field.name));

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { useDrag, useDrop, DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import {
@@ -120,8 +120,8 @@ const DashboardFilter: React.FC = () => {
   ]);
   const [selectedDashboardId, setSelectedDashboardId] = useState<string>('dashboard1');
   const [selectedPanelId, setSelectedPanelId] = useState<string | null>(null);
-  const [selectedVisual, setSelectedVisual] = useState<Visual | null>(null);
-  const [visuals, setVisuals] = useState<Visual[]>(availableVisuals);
+  const [selectedVisual, _setSelectedVisual] = useState<Visual | null>(null);
+  const [visuals, _setVisuals] = useState<Visual[]>(availableVisuals);
   const [rowFields, setRowFields] = useState<string[]>([]);
   const [columnFields, setColumnFields] = useState<string[]>([]);
   const [panelConfig, setPanelConfig] = useState<Panel>({ ...defaultPanelData });
@@ -191,7 +191,7 @@ const DashboardFilter: React.FC = () => {
   };
 
   // Update panel config and sync to dashboard state
-  const updatePanelConfig = (field: string, value: any) => {
+  const _updatePanelConfig = (field: string, value: any) => {
     if (!selectedDashboard) return;
     const updatedConfig = field === 'position'
       ? { ...panelConfig, position: value }
@@ -249,7 +249,7 @@ const DashboardFilter: React.FC = () => {
     );
   };
 
-  const DropZone = ({
+  const _DropZone = ({
     type,
     onDrop,
     children,
@@ -315,12 +315,12 @@ const DashboardFilter: React.FC = () => {
     setSelectedVisual(visual);
   };
 
-  const handleRowDrop = (field: string) => {
+  const _handleRowDrop = (field: string) => {
     if (!rowFields.includes(field)) setRowFields([...rowFields, field]);
     handleVisualDropToPanel(field);
   };
 
-  const handleColumnDrop = (field: string) => {
+  const _handleColumnDrop = (field: string) => {
     if (!columnFields.includes(field)) setColumnFields([...columnFields, field]);
     handleVisualDropToPanel(field);
   };

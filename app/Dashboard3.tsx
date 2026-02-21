@@ -63,7 +63,7 @@ interface Filter {
   id: string;
   key: string;
   type: 'text' | 'numberRange' | 'dropdown';
-  value: any;
+  value: unknown;
   scope: 'global' | 'individual';
   targetPane?: string;
 }
@@ -76,18 +76,18 @@ interface FilterMeta {
   options?: string[] | string;
   multiSelect?: boolean;
   placeholder?: string;
-  defaultValue?: any;
+  defaultValue?: unknown;
   required?: boolean;
   visible?: boolean;
   isActive?: boolean;
   description?: string;
   tags?: string[] | string;
-  min?: any;
-  max?: any;
+  min?: number | string;
+  max?: number | string;
   pattern?: string;
   allowCustom?: boolean;
   advancedConfig?: string;
-  config?: any;
+  config?: Record<string, unknown>;
   webapi?: string;
   webapiType?: 'static' | 'dynamic';
   staticOptions?: string;
@@ -305,7 +305,7 @@ const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
   // Fetch data from API with filters applied
   useEffect(() => {
-    const params: any = {};
+    const params: Record<string, unknown> = {};
     filters.forEach((filter) => {
       if (filter.type === 'text' && filter.value) {
         params[filter.key] = filter.value;
@@ -465,7 +465,7 @@ const FilterModal: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpe
 
   // Local state for filters metadata and values
   const [filterMeta, setFilterMeta] = useState<FilterMeta[]>([]);
-  const [filterValues, setFilterValues] = useState<{ [key: string]: any }>({});
+  const [filterValues, setFilterValues] = useState<Record<string, unknown>>({});
   const [dynamicOptions, setDynamicOptions] = useState<{ [key: string]: DynamicOption[] }>({});
   const [loadingOptions, setLoadingOptions] = useState<{ [key: string]: boolean }>({});
   const [loading, setLoading] = useState(false);
@@ -476,7 +476,7 @@ const FilterModal: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpe
   const [contextMenuFilterId, setContextMenuFilterId] = useState<string | null>(null);
 
   // Normalize filter data helper
-  const normalizeFilter = (filter: any): FilterMeta => ({
+  const normalizeFilter = (filter: Partial<FilterMeta>): FilterMeta => ({
     ...filter,
     options: Array.isArray(filter.options)
       ? filter.options
@@ -505,7 +505,7 @@ const FilterModal: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpe
         setError(null);
 
         // Initialize filterValues from applied filters to keep state on reopen
-        const initialValues: { [key: string]: any } = {};
+        const initialValues: Record<string, unknown> = {};
         normalizedFilters.forEach(f => {
           const appliedFilter = filters.find(
             (af) => af.key === (f.field?.toLowerCase() === 'age' ? 'age' : (f.field || f.name || f.id))
@@ -559,7 +559,7 @@ const FilterModal: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpe
       const data = await response.json();
       let options: DynamicOption[] = [];
       if (Array.isArray(data)) {
-        options = data.map((item: any) => {
+        options = data.map((item: unknown) => {
           if (item.id && item.name) return { value: item.id, label: item.name };
           if (typeof item === 'string') return { value: item, label: item };
           if (item.name) return { value: item.name, label: item.name };
@@ -568,7 +568,7 @@ const FilterModal: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpe
           return { value: item[firstKey], label: item[firstKey] };
         });
       } else if (data.data && Array.isArray(data.data)) {
-        options = data.data.map((item: any) => ({
+        options = data.data.map((item: unknown) => ({
           value: item.id || item.name || item.value,
           label: item.name || item.label || item.value || item.id
         }));
@@ -600,7 +600,7 @@ const FilterModal: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpe
   };
 
   // Handle filter value change
-  const handleFilterChange = (id: string, value: any) => {
+  const handleFilterChange = (id: string, value: unknown) => {
     setFilterValues(prev => ({ ...prev, [id]: value }));
   };
 
@@ -774,7 +774,7 @@ const FilterModal: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpe
 
   // Clear filters
   const clearFilters = () => {
-    const clearedValues: { [key: string]: any } = {};
+    const clearedValues: Record<string, unknown> = {};
     filterMeta.forEach(f => {
       clearedValues[f.id] = f.multiSelect ? [] : '';
     });
@@ -1565,6 +1565,7 @@ const Modal = forwardRef(({ children, onClose }, ref) => {
     document.body
   );
 });
+Modal.displayName = 'Modal';
 
 const DrillableBarPanel = () => {
   const [panel1MinUsers, setPanel1MinUsers] = useState('');
@@ -1658,7 +1659,7 @@ const Panel = ({
     drillAcrossState: false,
     productDrillAcross: false,
   });
-  const [selectedMonths, setSelectedMonthsLocal] = useState([]);
+  const [_selectedMonths, setSelectedMonthsLocal] = useState([]);
 
   const toggleMenu = () => {
     if (menuOpen) {
@@ -1722,7 +1723,9 @@ const Panel = ({
                     className="w-full justify-start text-sm"
                     onClick={() => {
                       setMenuOpenGlobal(null);
-                      onMaximize && onMaximize('panel1');
+                      if (onMaximize) {
+                        onMaximize('panel1');
+                      }
                     }}
                   >
                     Maximize

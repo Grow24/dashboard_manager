@@ -8,24 +8,24 @@ import 'react-resizable/css/styles.css';
 import ContextMenuTab from './ContextMenuTab'; // Adjust path as needed
 import AssignFiltersTab from './AssignFiltersTab'; // Import the new component
 import ReactDOM from 'react-dom';
-import { FiRefreshCw } from 'react-icons/fi';
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip as RechartsTooltip,
-  Legend,
-  Cell,
-} from 'recharts';
+// import { FiRefreshCw } from 'react-icons/fi'; // Unused
+// import {
+//   ResponsiveContainer,
+//   BarChart,
+//   Bar,
+//   XAxis,
+//   YAxis,
+//   CartesianGrid,
+//   Tooltip as RechartsTooltip,
+//   Legend,
+//   Cell,
+// } from 'recharts'; // Unused
 // ... existing interfaces and types ...
 import dynamic from 'next/dynamic';
 import 'leaflet/dist/leaflet.css';
 
 // Dynamically import the map component (client-side only)
-const MapWidget = dynamic(() => import('../components/MapWidget'), { 
+const _MapWidget = dynamic(() => import('../components/MapWidget'), { 
   ssr: false,
   loading: () => <div>Loading map...</div>
 });
@@ -135,7 +135,7 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     }
 
     if (!text) {
-      // @ts-ignore
+      // @ts-expect-error - text may be null
       return null;
     }
 

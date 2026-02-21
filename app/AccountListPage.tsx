@@ -10,18 +10,18 @@ interface Filter {
   options?: string[] | string;
   multiSelect?: boolean;
   placeholder?: string;
-  defaultValue?: any;
+  defaultValue?: unknown;
   required?: boolean;
   visible?: boolean;
   isActive?: boolean;
   description?: string;
   tags?: string[] | string;
-  min?: any;
-  max?: any;
+  min?: number | string;
+  max?: number | string;
   pattern?: string;
   allowCustom?: boolean;
   advancedConfig?: string;
-  config?: any;
+  config?: Record<string, unknown>;
   webapi?: string;
   webapiType?: 'static' | 'dynamic';
   staticOptions?: string;
@@ -139,14 +139,14 @@ const AccountListPage: React.FC = () => {
   const [filters, setFilters] = useState<Filter[]>([]);
   const [assignedFilterIds, setAssignedFilterIds] = useState<string[]>([]);
   const [selectedFilterIds, setSelectedFilterIds] = useState<string[]>([]);
-  const [filterValues, setFilterValues] = useState<{ [key: string]: any }>({});
+  const [filterValues, setFilterValues] = useState<Record<string, unknown>>({});
   const [dynamicOptions, setDynamicOptions] = useState<{ [key: string]: DynamicOption[] }>({});
   const [loadingOptions, setLoadingOptions] = useState<{ [key: string]: boolean }>({});
   const [loadingFilters, setLoadingFilters] = useState(true);
   const [loadingData, setLoadingData] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dataError, setDataError] = useState<string | null>(null);
-  const [tableData, setTableData] = useState<any[]>([]);
+  const [tableData, setTableData] = useState<Record<string, unknown>[]>([]);
   const [queryText, setQueryText] = useState<string>('');
 
   // Fetch assigned filters for this page (only IDs)
@@ -158,7 +158,7 @@ const AccountListPage: React.FC = () => {
         console.log('data----------');
         console.log(data);
         if (data.success) {
-          setAssignedFilterIds(data.filters.map((f: any) => f.id));
+          setAssignedFilterIds(data.filters.map((f: { id: string }) => f.id));
         }
       } catch (err) {
         console.error('Error fetching assigned filters:', err);
@@ -230,8 +230,8 @@ const AccountListPage: React.FC = () => {
       console.log(data);
       console.log('data- end------------------');
       setTableData(data);
-    } catch (e: any) {
-      setDataError(e.message || 'Failed to fetch data');
+    } catch (e: unknown) {
+      setDataError((e instanceof Error ? e.message : 'Failed to fetch data') || 'Failed to fetch data');
       setTableData([]);
     } finally {
       setLoadingData(false);
@@ -250,7 +250,7 @@ const AccountListPage: React.FC = () => {
   }, [loadingFilters, selectedFilterIds]);
 
   // Normalize filter helper
-  const normalizeFilter = (filter: any): Filter => ({
+  const normalizeFilter = (filter: Partial<Filter>): Filter => ({
     ...filter,
     options: Array.isArray(filter.options)
       ? filter.options
@@ -292,7 +292,7 @@ const AccountListPage: React.FC = () => {
       }
       let options: DynamicOption[] = [];
       if (Array.isArray(data)) {
-        options = data.map((item: any) => {
+        options = data.map((item: unknown) => {
           if (item.id && item.name) return { value: item.id, label: item.name };
           if (typeof item === 'string') return { value: item, label: item };
           if (item.name) return { value: item.name, label: item.name };
@@ -301,18 +301,18 @@ const AccountListPage: React.FC = () => {
           return { value: item[firstKey], label: item[firstKey] };
         });
       } else if (data.data && Array.isArray(data.data)) {
-        options = data.data.map((item: any) => ({
+        options = data.data.map((item: unknown) => ({
           value: item.id || item.name || item.value,
           label: item.name || item.label || item.value || item.id
         }));
       } else if (data.countries && Array.isArray(data.countries)) {
-        options = data.countries.map((item: any) => ({
+        options = data.countries.map((item: unknown) => ({
           value: item.id || item.name || item.value,
           label: item.name || item.label || item.value
         }));
       }
       setDynamicOptions(prev => ({ ...prev, [filterId]: options }));
-    } catch (e) {
+    } catch {
       setDynamicOptions(prev => ({ ...prev, [filterId]: [] }));
     } finally {
       setLoadingOptions(prev => ({ ...prev, [filterId]: false }));
@@ -326,7 +326,7 @@ const AccountListPage: React.FC = () => {
   };
 
   // Build the query from selected filters and current values
-const buildQueryFromFilters = (selectedIdsOverride?: string[], filterValuesOverride?: Record<string, any>) => {
+const buildQueryFromFilters = (selectedIdsOverride?: string[], filterValuesOverride?: Record<string, unknown>) => {
   const selected = filters.filter(f => (selectedIdsOverride ?? selectedFilterIds).includes(f.id));
 
   if (selected.length === 0) return '';
@@ -412,7 +412,7 @@ console.log('finalQuery ---------------' + finalQuery);
     });
   };
 
-const handleFilterChange = (id: string, value: any) => {
+const handleFilterChange = (id: string, value: unknown) => {
   setFilterValues(prev => {
     const newValues = { ...prev, [id]: value };
     const nextQueryRaw = buildQueryFromFilters(undefined, newValues);
@@ -463,8 +463,8 @@ const handleFilterChange = (id: string, value: any) => {
     const data = await response.json();
     if (data.error) throw new Error(data.error);
     setTableData(data);
-  } catch (err: any) {
-    setDataError(err.message || 'Failed to execute query');
+  } catch (err: unknown) {
+    setDataError((err instanceof Error ? err.message : 'Failed to execute query') || 'Failed to execute query');
     setTableData([]);
   } finally {
     setLoadingData(false);
@@ -506,7 +506,7 @@ const handleFilterChange = (id: string, value: any) => {
 };
 
   // Render filter input/select control
-  const renderFilterControl = (filter: Filter, value: any) => {
+  const renderFilterControl = (filter: Filter, value: unknown) => {
     const options = getFilterOptions(filter);
     const isLoading = loadingOptions[filter.id];
 
@@ -517,37 +517,39 @@ const handleFilterChange = (id: string, value: any) => {
         const [property, v] = style.split(':').map(s => s.trim());
         if (property && v) {
           const camelProperty = property.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
-          (styles as any)[camelProperty] = v;
+          (styles as Record<string, string>)[camelProperty] = v;
         }
       });
       return styles;
     };
 
     const createEventHandlers = (filter: Filter) => {
-      const handlers: any = {};
+      type EventHandler = (e: React.SyntheticEvent, filter: Filter) => void;
+      const handlers: Record<string, EventHandler> = {};
 
-      if (filter.onClickHandler && (window as any)[filter.onClickHandler]) {
-        handlers.onClick = (e: any) => (window as any)[filter.onClickHandler!](e, filter);
+      const windowWithHandlers = window as Window & Record<string, EventHandler>;
+      if (filter.onClickHandler && windowWithHandlers[filter.onClickHandler]) {
+        handlers.onClick = (e: React.MouseEvent) => windowWithHandlers[filter.onClickHandler!](e, filter);
       }
-      if (filter.onBlurHandler && (window as any)[filter.onBlurHandler]) {
-        handlers.onBlur = (e: any) => (window as any)[filter.onBlurHandler!](e, filter);
+      if (filter.onBlurHandler && windowWithHandlers[filter.onBlurHandler]) {
+        handlers.onBlur = (e: React.FocusEvent) => windowWithHandlers[filter.onBlurHandler!](e, filter);
       }
-      if (filter.onChangeHandler && (window as any)[filter.onChangeHandler]) {
-        handlers.onChange = (e: any) => {
+      if (filter.onChangeHandler && windowWithHandlers[filter.onChangeHandler]) {
+        handlers.onChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
           handleFilterChange(filter.id, e.target.value);
-          (window as any)[filter.onChangeHandler!](e, filter);
+          windowWithHandlers[filter.onChangeHandler!](e, filter);
         };
       } else {
-        handlers.onChange = (e: any) => handleFilterChange(filter.id, e.target.value);
+        handlers.onChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => handleFilterChange(filter.id, e.target.value);
       }
-      if (filter.onFocusHandler && (window as any)[filter.onFocusHandler]) {
-        handlers.onFocus = (e: any) => (window as any)[filter.onFocusHandler!](e, filter);
+      if (filter.onFocusHandler && windowWithHandlers[filter.onFocusHandler]) {
+        handlers.onFocus = (e: React.FocusEvent) => windowWithHandlers[filter.onFocusHandler!](e, filter);
       }
-      if (filter.onKeyDownHandler && (window as any)[filter.onKeyDownHandler]) {
-        handlers.onKeyDown = (e: any) => (window as any)[filter.onKeyDownHandler!](e, filter);
+      if (filter.onKeyDownHandler && windowWithHandlers[filter.onKeyDownHandler]) {
+        handlers.onKeyDown = (e: React.KeyboardEvent) => windowWithHandlers[filter.onKeyDownHandler!](e, filter);
       }
-      if (filter.onKeyUpHandler && (window as any)[filter.onKeyUpHandler]) {
-        handlers.onKeyUp = (e: any) => (window as any)[filter.onKeyUpHandler!](e, filter);
+      if (filter.onKeyUpHandler && windowWithHandlers[filter.onKeyUpHandler]) {
+        handlers.onKeyUp = (e: React.KeyboardEvent) => windowWithHandlers[filter.onKeyUpHandler!](e, filter);
       }
 
       return handlers;
@@ -598,8 +600,9 @@ const handleFilterChange = (id: string, value: any) => {
                 value={Array.isArray(value) ? value : value ? [value] : []}
                 onChange={selected => {
                   handleFilterChange(filter.id, selected);
-                  if (filter.onChangeHandler && (window as any)[filter.onChangeHandler]) {
-                    (window as any)[filter.onChangeHandler!]({ target: { value: selected } }, filter);
+                  const windowWithHandlers = window as Window & Record<string, (e: { target: { value: unknown } }, filter: Filter) => void>;
+                  if (filter.onChangeHandler && windowWithHandlers[filter.onChangeHandler]) {
+                    windowWithHandlers[filter.onChangeHandler!]({ target: { value: selected } }, filter);
                   }
                 }}
                 placeholder={filter.placeholder || `Select ${filter.name}`}
@@ -815,7 +818,7 @@ const handleFilterChange = (id: string, value: any) => {
                   </td>
                 </tr>
               ) : (
-                tableData.map((row: any, index: number) => (
+                tableData.map((row: Record<string, unknown>, index: number) => (
                   <tr key={row.id ?? index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                     {Object.keys(row).map((col) => (
                       <td key={col} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">

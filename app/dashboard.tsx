@@ -75,7 +75,7 @@ const saveDashboardToAPI = async (dashboard: Dashboard) => {
   }
 };
 
-const loadDashboardsFromAPI = async () => {
+const _loadDashboardsFromAPI = async () => {
   try {
     const response = await fetch(`${API_BASE_URL}/get_dashboards.php`);
     const data = await response.json();
@@ -111,7 +111,7 @@ const loadPageDataFromAPI = async (pageId: string) => {
 };
 
 // Function to fetch the actual .tsx file content
-const fetchPageComponentContent = async (pagepath: string) => {
+const _fetchPageComponentContent = async (pagepath: string) => {
   try {
     // If pagepath is empty, return null
     if (!pagepath) return null;
@@ -233,7 +233,7 @@ const DashboardCreationPopup: React.FC<DashboardCreationPopupProps> = ({
   const [activeTab, setActiveTab] = useState<'details' | 'pages' | 'panes' | 'preview'>('details');
   const [dashboardName, setDashboardName] = useState('');
   const [selectedPages, setSelectedPages] = useState<DashboardPage[]>([]);
-  const [pageContents, setPageContents] = useState<Record<string, string>>({});
+  const [_pageContents, setPageContents] = useState<Record<string, string>>({});
   const [pageData, setPageData] = useState<Record<string, PageData>>({});
   const [panes, setPanes] = useState<DashboardPane[]>([]);
   const [newPane, setNewPane] = useState({
@@ -289,7 +289,7 @@ const DashboardCreationPopup: React.FC<DashboardCreationPopupProps> = ({
               contents[page.id] = 'No content available';
             }
           }
-        } catch (error) {
+        } catch (_error) {
           contents[page.id] = 'Error loading content';
         }
       }

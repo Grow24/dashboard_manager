@@ -12,7 +12,7 @@ interface PageAnalytics {
   bottomN?: number;
   sortBy?: string;
   sortDir?: 'asc' | 'desc';
-  additionalFilters?: Record<string, any>;
+  additionalFilters?: Record<string, unknown>;
 }
 
 interface TableColumn {
@@ -49,9 +49,9 @@ interface PageComponent {
     query?: string;
     columns?: Array<{ key: string; header?: string }>;
     chartType?: 'pie' | 'bar' | 'line' | 'area';
-    filters?: Record<string, any>;
+    filters?: Record<string, unknown>;
     aggregation?: PanelAggregation;
-    staticData?: any[];
+    staticData?: Record<string, unknown>[];
     xKey?: string;
     yKey?: string;
   };
@@ -85,7 +85,7 @@ interface PagePanel {
   columnName?: string;
   aggregation?: PanelAggregation;
   distinctOn?: string;
-  filters?: Record<string, any>;
+  filters?: Record<string, unknown>;
   window?: PanelWindowOptions;
   prefix?: string;
   suffix?: string;
@@ -471,11 +471,11 @@ export default ${page.name?.replace(/[^a-zA-Z0-9]/g, '') || 'Page'};
 };
 // Updated ChartComponent with context menu on bars
 const ChartComponent: React.FC<{ component: PageComponent; API_BASE_URL: string }> = ({ component, API_BASE_URL }) => {
-  const [data, setData] = useState<any[]>([]);
+  const [data, setData] = useState<Record<string, unknown>[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [contextMenuItems, setContextMenuItems] = useState<ContextMenuItem[]>([]);
-  const [contextMenuTargetData, setContextMenuTargetData] = useState<any>(null);
+  const [contextMenuTargetData, setContextMenuTargetData] = useState<Record<string, unknown> | null>(null);
   const [stackingMode, setStackingMode] = useState<{ type: string; scope: string; month?: string } | null>(null);
   const [drillAcross, setDrillAcross] = useState<{ type: string; scope: string; month?: string } | null>(null);
   const [productDrillAcross, setProductDrillAcross] = useState<{ type: string; scope: string; month?: string } | null>(null);
@@ -495,7 +495,7 @@ const ChartComponent: React.FC<{ component: PageComponent; API_BASE_URL: string 
   const yKey = component.config.yKey || component.config.columns?.[1]?.key;
 
   // Handler for right-click on a bar
-  const handleBarContextMenu = (data: any, index: number, event: React.MouseEvent) => {
+  const handleBarContextMenu = (data: Record<string, unknown>, index: number, event: React.MouseEvent) => {
     event.preventDefault();
     const clickX = event.clientX;
     const clickY = event.clientY;
@@ -758,7 +758,7 @@ const ChartComponent: React.FC<{ component: PageComponent; API_BASE_URL: string 
 };
 
 // Fetch data for components
-const fetchComponentData = async (component: PageComponent, API_BASE_URL: string): Promise<any[]> => {
+const fetchComponentData = async (component: PageComponent, API_BASE_URL: string): Promise<Record<string, unknown>[]> => {
   if (component.config.dataSourceType === 'static') {
     return component.config.staticData || [];
   }
@@ -779,7 +779,7 @@ const fetchComponentData = async (component: PageComponent, API_BASE_URL: string
 };
 
 // Fetch filters from filter_master table API
-const fetchAvailableFilters = async (API_BASE_URL: string): Promise<any[]> => {
+const fetchAvailableFilters = async (API_BASE_URL: string): Promise<Record<string, unknown>[]> => {
   try {
     const res = await fetch(API_BASE_URL + '/filter_master.php');
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -792,7 +792,7 @@ const fetchAvailableFilters = async (API_BASE_URL: string): Promise<any[]> => {
 };
 
 const TableComponent: React.FC<{ component: PageComponent; API_BASE_URL: string }> = ({ component, API_BASE_URL }) => {
-  const [data, setData] = useState<any[]>([]);
+  const [data, setData] = useState<Record<string, unknown>[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -830,10 +830,10 @@ const TableComponent: React.FC<{ component: PageComponent; API_BASE_URL: string 
 
 const FiltersComponent: React.FC<{
   API_BASE_URL: string;
-  onFiltersChange: (filters: Record<string, any>) => void;
+  onFiltersChange: (filters: Record<string, unknown>) => void;
 }> = ({ API_BASE_URL, onFiltersChange }) => {
-  const [availableFilters, setAvailableFilters] = useState<any[]>([]);
-  const [selectedFilters, setSelectedFilters] = useState<Record<string, any>>({});
+  const [availableFilters, setAvailableFilters] = useState<Record<string, unknown>[]>([]);
+  const [selectedFilters, setSelectedFilters] = useState<Record<string, unknown>>({});
 
   useEffect(() => {
     let canceled = false;
@@ -843,7 +843,7 @@ const FiltersComponent: React.FC<{
     return () => { canceled = true; };
   }, [API_BASE_URL]);
 
-  const handleFilterChange = (key: string, value: any) => {
+  const handleFilterChange = (key: string, value: unknown) => {
     const updated = { ...selectedFilters, [key]: value };
     setSelectedFilters(updated);
     onFiltersChange(updated);
@@ -855,7 +855,7 @@ const FiltersComponent: React.FC<{
 };
 
 const PageRenderer: React.FC<{ components: PageComponent[]; API_BASE_URL: string }> = ({ components, API_BASE_URL }) => {
-  const [globalFilters, setGlobalFilters] = useState<Record<string, any>>({});
+  const [globalFilters, setGlobalFilters] = useState<Record<string, unknown>>({});
 
   const componentsWithFilters = components.map(c => {
     if (c.type === 'chart') {
@@ -896,7 +896,7 @@ const CreatePagePopup: React.FC<CreatePagePopupProps> = ({
     const [draggedComponent, setDraggedComponent] = useState<string | null>(null);
     const [showAddComponentForm, setShowAddComponentForm] = useState(false);
     const [newComponentType, setNewComponentType] = useState<'chart' | 'table' | 'header' | 'filter' | 'text' | 'image'>('chart');
-    const [newComponentConfig, setNewComponentConfig] = useState<any>({});
+    const [newComponentConfig, setNewComponentConfig] = useState<Record<string, unknown>>({});
     const [page, setPage] = useState<Partial<Page>>(
       editingPage || {
         name: '',
@@ -1069,7 +1069,7 @@ const CreatePagePopup: React.FC<CreatePagePopupProps> = ({
   
       const newComponent: PageComponent = {
         id: Date.now().toString(),
-        type: draggedComponent as any,
+        type: draggedComponent as 'header' | 'table' | 'chart' | 'filter' | 'text' | 'image',
         position: { x, y },
         size: { width: 800, height: 400 },
         config: {}
@@ -1147,14 +1147,14 @@ const CreatePagePopup: React.FC<CreatePagePopupProps> = ({
     };
   
     // Panel value fetcher for previews and testing
-    const formatPanelValue = (panel: PagePanel, raw: any) => {
+    const formatPanelValue = (panel: PagePanel, raw: unknown) => {
       const decimals = typeof panel.decimals === 'number' ? panel.decimals : 0;
       const n = typeof raw === 'number' ? raw : Number(raw);
       const numStr = Number.isFinite(n) ? n.toFixed(decimals) : String(raw);
       return `${panel.prefix || ''}${numStr}${panel.suffix || ''}`;
     };
   
-    const fetchPanelValue = async (panel: PagePanel): Promise<any> => {
+    const fetchPanelValue = async (panel: PagePanel): Promise<unknown> => {
       if (panel.dataSourceType === 'static') {
         return panel.staticValue ?? 0;
       }
@@ -1188,7 +1188,7 @@ const CreatePagePopup: React.FC<CreatePagePopupProps> = ({
             if (canceled) return;
             setValue(formatPanelValue(panel, raw));
             setError(null);
-          } catch (e: any) {
+          } catch (e: unknown) {
             if (canceled) return;
             setError(e?.message || 'Error');
           }
@@ -1535,7 +1535,7 @@ const CreatePagePopup: React.FC<CreatePagePopupProps> = ({
                     <label className="block font-medium mb-1">Component Type</label>
                     <select
                       value={newComponentType}
-                      onChange={(e) => setNewComponentType(e.target.value as any)}
+                      onChange={(e) => setNewComponentType(e.target.value as 'header' | 'table' | 'chart' | 'filter' | 'text' | 'image')}
                       className="w-full border border-gray-300 rounded px-2 py-1"
                     >
                       <option value="chart">Chart</option>
@@ -1603,7 +1603,7 @@ const CreatePagePopup: React.FC<CreatePagePopupProps> = ({
                           <label className="block font-medium mb-1">Columns (comma separated keys)</label>
                           <input
                             type="text"
-                            value={(newComponentConfig.columns || []).map((c: any) => c.key).join(', ')}
+                            value={(newComponentConfig.columns || []).map((c: { key: string }) => c.key).join(', ')}
                             onChange={(e) => {
                               const keys = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
                               // Map keys to objects with key and header same as key initially
@@ -1693,7 +1693,7 @@ const CreatePagePopup: React.FC<CreatePagePopupProps> = ({
                           <label className="block font-medium mb-1">Columns (comma separated keys)</label>
                           <input
                             type="text"
-                            value={(newComponentConfig.columns || []).map((c: any) => c.key).join(', ')}
+                            value={(newComponentConfig.columns || []).map((c: { key: string }) => c.key).join(', ')}
                             onChange={(e) => {
                               const keys = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
                               // Map keys to objects with key and header same as key initially
@@ -1707,7 +1707,7 @@ const CreatePagePopup: React.FC<CreatePagePopupProps> = ({
                           {newComponentConfig.columns && newComponentConfig.columns.length > 0 && (
                             <div className="mt-2 space-y-2">
                               <label className="block font-medium mb-1">Column Headers</label>
-                              {newComponentConfig.columns.map((col: any, idx: number) => (
+                              {newComponentConfig.columns.map((col: { key: string; header?: string }, idx: number) => (
                                 <input
                                   key={col.key}
                                   type="text"
@@ -1948,7 +1948,7 @@ const CreatePagePopup: React.FC<CreatePagePopupProps> = ({
                                   <label className="block text-sm font-medium">Columns (comma separated keys)</label>
                                   <input
                                     type="text"
-                                    value={(component.config.columns || []).map((c: any) => c.key).join(', ')}
+                                    value={(component.config.columns || []).map((c: { key: string }) => c.key).join(', ')}
                                     onChange={(e) => {
                                       const keys = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
                                       const cols = keys.map(k => ({ key: k, header: k }));
@@ -1965,7 +1965,7 @@ const CreatePagePopup: React.FC<CreatePagePopupProps> = ({
                                   {(component.config.columns && component.config.columns.length > 0) && (
                                     <div className="mt-2 space-y-2">
                                       <label className="block font-medium mb-1">Column Headers</label>
-                                      {component.config.columns.map((col: any, idx: number) => (
+                                      {component.config.columns.map((col: { key: string; header?: string }, idx: number) => (
                                         <input
                                           key={col.key}
                                           type="text"
@@ -2030,7 +2030,7 @@ const CreatePagePopup: React.FC<CreatePagePopupProps> = ({
                 </div>
   
                 {(page.panels || []).length === 0 && (
-                  <div className="text-gray-500">No panels yet. Click "+ Add Panel".</div>
+                  <div className="text-gray-500">No panels yet. Click &quot;+ Add Panel&quot;.</div>
                 )}
   
                 <div className="grid grid-cols-1 gap-4">

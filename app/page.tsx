@@ -74,10 +74,10 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip as ChartTooltip,
-  PieChart,
-  Cell,
-  AreaChart,
-  Area
+  // PieChart, // Unused
+  // Cell, // Unused
+  // AreaChart, // Unused
+  // Area // Unused
 } from 'recharts';
 import {
   Chart as ChartJS,
@@ -115,7 +115,7 @@ const sampleData = [
   { customerName: 'Diana', orderDate: '2025-05-15', product: 'Thingamajig', quantity: 3, price: 60, status: 'Active' },
 ];
 
-const COLORS = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#3B82F6', '#8B5CF6'];
+const _COLORS = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#3B82F6', '#8B5CF6'];
 
 const originalData = [
   { name: 'Jan', users: 10 },
@@ -339,7 +339,7 @@ function CustomStackedTooltip({ active, payload, label }) {
   );
 }
 
-function DrillableBarChart({
+function _DrillableBarChart({
   drillData,
   productData,
   stateData,
@@ -581,7 +581,7 @@ const [filterHistory, setFilterHistory] = useState([]);
         const allStates = new Set();
         Object.values(stateData).forEach(list => list.forEach(s => allStates.add(s.state)));
         keys = Array.from(allStates);
-        data = Object.entries(stateData).map(([month, stateList]) => {
+        const _data = Object.entries(stateData).map(([month, stateList]) => {
           const entry = { name: month };
           keys.forEach(k => {
             const st = stateList.find(s => s.state === k);
@@ -1108,9 +1108,10 @@ const Modal = forwardRef(({ children, onClose }, ref) => {
     document.body
   );
 });
+Modal.displayName = 'Modal';
 
 // Panel component with controlled menu open state setMenuOpenGlobal
-const Panel = ({
+const _Panel = ({
   title,
   children,
   panelKey,
@@ -1676,7 +1677,7 @@ export default function Page() {
   const [collapsedNew, setCollapsedNew] = useState(false);
   const [collapsedSubFilters, setCollapsedSubFilters] = useState(false);
   const [selectedMenu, setSelectedMenu] = useState('Dashboard');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [_searchTerm, _setSearchTerm] = useState('');
   const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [minUsers, setMinUsers] = useState('');
@@ -1696,8 +1697,8 @@ const [panel1SelectedMonths, setPanel1SelectedMonths] = useState([]);
   // const [panel1MaxUsers, setPanel1MaxUsers] = useState('');
   // const [selectedMonths, setSelectedMonths] = useState([]);
   // Other states remain unchanged
-  const [showFilters, setShowFilters] = useState(false);
-  const [activeTab, setActiveTab] = useState("page1");
+  const [_showFilters, _setShowFilters] = useState(false);
+  const [_activeTab, _setActiveTab] = useState("page1");
   const [otherPanelsFilteredMonths, setOtherPanelsFilteredMonths] = useState([]);
   const [selectedPanels, setSelectedPanels] = useState({
     panel1: true,
@@ -1707,11 +1708,11 @@ const [panel1SelectedMonths, setPanel1SelectedMonths] = useState([]);
     panel5: true,
     panel6: true,
   });
-  const [maximizedPanel, setMaximizedPanel] = useState(null);
-  const [stackingMode, setStackingMode] = useState(null);
-  const [drillAcross, setDrillAcross] = useState(null);
-  const [contextMenu, setContextMenu] = useState({ show: false, x: 0, y: 0, data: null });
-  const [submenuVisible, setSubmenuVisible] = useState({
+  const [_maximizedPanel, setMaximizedPanel] = useState(null);
+  const [_stackingMode, _setStackingMode] = useState(null);
+  const [_drillAcross, _setDrillAcross] = useState(null);
+  const [_contextMenu, setContextMenu] = useState({ show: false, x: 0, y: 0, data: null });
+  const [_submenuVisible, setSubmenuVisible] = useState({
     stackBar: false,
     drillAcross: false,
     stackBarProduct: false,
@@ -1720,8 +1721,8 @@ const [panel1SelectedMonths, setPanel1SelectedMonths] = useState([]);
     drillAcrossState: false,
     productDrillAcross: false,
   });
-  const modalContainerRef = useRef(null);
-    const [openMenuPanel, setOpenMenuPanel] = useState(null);
+  const _modalContainerRef = useRef(null);
+    const [_openMenuPanel, setOpenMenuPanel] = useState(null);
   
     // === FILTERING LOGIC ===
     const filteredDrillData = drillDataStatic.filter(d => {
@@ -1759,7 +1760,7 @@ const [panel1SelectedMonths, setPanel1SelectedMonths] = useState([]);
     panelOnCurrentPage: true,
   });
   
-  const filteredDrillDataOtherPanels = filterDataForPanel({
+  const _filteredDrillDataOtherPanels = filterDataForPanel({
     data: mergeUsers(drillDataStatic),
     globalFilters: { minUsers, maxUsers, selectedMonths },
     pageFilters: { minUsers: page1MinUsers, maxUsers: page1MaxUsers, selectedMonths: page1SelectedMonths },
@@ -1800,10 +1801,10 @@ const [panel1SelectedMonths, setPanel1SelectedMonths] = useState([]);
   };
   
   // const filteredDrillData = applyGlobalFilters(mergeUsers(drillDataStatic));
-  const filteredOriginalData = applyGlobalFilters(originalData);
-  const [page2MinUsers, setPage2MinUsers] = useState('');
-    const [page2MaxUsers, setPage2MaxUsers] = useState('');
-    const [page2SelectedMonths, setPage2SelectedMonths] = useState([]);
+  const _filteredOriginalData = applyGlobalFilters(originalData);
+  const [_page2MinUsers, _setPage2MinUsers] = useState('');
+    const [_page2MaxUsers, _setPage2MaxUsers] = useState('');
+    const [_page2SelectedMonths, _setPage2SelectedMonths] = useState([]);
     // Filtered product and state data for Page 1 panels
     const filteredProductDataWithMonths = {};
     const filteredStateDataWithMonths = {};
@@ -1820,31 +1821,31 @@ const [panel1SelectedMonths, setPanel1SelectedMonths] = useState([]);
     return aboveMin && belowMax && inSelectedMonths;
   });
 
-  const filteredData = filteredOtherPanelsData;
+  const _filteredData = filteredOtherPanelsData;
   
     // === HANDLERS FOR PAGE 1 FILTERS ===
-    const handlePage1MinUsersChange = (e) => setPage1MinUsers(e.target.value);
-    const handlePage1MaxUsersChange = (e) => setPage1MaxUsers(e.target.value);
-    const handlePage1MonthToggle = (month) => {
+    const _handlePage1MinUsersChange = (e: React.ChangeEvent<HTMLInputElement>) => setPage1MinUsers(e.target.value);
+    const _handlePage1MaxUsersChange = (e: React.ChangeEvent<HTMLInputElement>) => setPage1MaxUsers(e.target.value);
+    const _handlePage1MonthToggle = (month: string) => {
       setPage1SelectedMonths((prev) =>
         prev.includes(month) ? prev.filter(m => m !== month) : [...prev, month]
       );
     };
-    const resetPage1Filters = () => {
+    const _resetPage1Filters = () => {
       setPage1MinUsers('');
       setPage1MaxUsers('');
       setPage1SelectedMonths([]);
     };
   
     // === HANDLERS FOR GLOBAL FILTERS ===
-    const handleMinUsersChange = (e) => setMinUsers(e.target.value);
-    const handleMaxUsersChange = (e) => setMaxUsers(e.target.value);
-    const handleMonthToggle = (month) => {
+    const _handleMinUsersChange = (e: React.ChangeEvent<HTMLInputElement>) => setMinUsers(e.target.value);
+    const _handleMaxUsersChange = (e: React.ChangeEvent<HTMLInputElement>) => setMaxUsers(e.target.value);
+    const _handleMonthToggle = (month: string) => {
       setSelectedMonths((prev) =>
         prev.includes(month) ? prev.filter(m => m !== month) : [...prev, month]
       );
     };
-    const resetGlobalFilters = () => {
+    const _resetGlobalFilters = () => {
       setMinUsers('');
       setMaxUsers('');
       setSelectedMonths([]);
@@ -1892,7 +1893,7 @@ const [panel1SelectedMonths, setPanel1SelectedMonths] = useState([]);
    
      const [panelOrder, setPanelOrder] = useState(() => {
        const visiblePanels = Object.entries(selectedPanels)
-         .filter(([_, visible]) => visible)
+         .filter(([, visible]) => visible)
          .map(([key]) => key);
        return visiblePanels;
      });
@@ -1915,10 +1916,10 @@ const [panel1SelectedMonths, setPanel1SelectedMonths] = useState([]);
        });
      }, [selectedPanels]);
    
-     const dragItemIndex = useRef(null);
+     const _dragItemIndex = useRef(null);
      const [draggedPanel, setDraggedPanel] = useState(null);
    
-     const onDragStart = (e, index, panelKey) => {
+     const _onDragStart = (e: React.DragEvent, index: number, panelKey: string) => {
        e.dataTransfer.effectAllowed = "move";
        setDraggedPanel({ index, key: panelKey });
        e.target.classList.add('dragging');
@@ -1930,7 +1931,7 @@ const [panel1SelectedMonths, setPanel1SelectedMonths] = useState([]);
        const targetRow = dropRow === 0 ? firstRowPanels : secondRowPanels;
        return targetRow.length < (dropRow === 0 ? 3 : 2);
      };
-     const onDragOver = (e, index, panelKey) => {
+     const _onDragOver = (e: React.DragEvent, index: number, panelKey: string) => {
        e.preventDefault();
        e.dataTransfer.dropEffect = "move";
    
@@ -1938,7 +1939,7 @@ const [panel1SelectedMonths, setPanel1SelectedMonths] = useState([]);
          e.currentTarget.classList.add('drop-target');
        }
      };
-     const onDragLeave = (e) => {
+     const _onDragLeave = (e: React.DragEvent) => {
        e.preventDefault();
        e.currentTarget.classList.remove('drop-target');
      };
@@ -1954,7 +1955,7 @@ const [panel1SelectedMonths, setPanel1SelectedMonths] = useState([]);
      };
 
 
-     const TableComponent = ({ data }) => {
+     const _TableComponent = ({ data }: { data: any }) => {
      return (
        <div className="overflow-x-auto">
          <table className="min-w-full divide-y divide-gray-200">
@@ -1992,7 +1993,7 @@ const [panel1SelectedMonths, setPanel1SelectedMonths] = useState([]);
      setPanel1MinUsers('');
      setPanel1MaxUsers('');
    };
-   const onDrop = (e, dropIndex, dropPanelKey) => {
+   const _onDrop = (e: React.DragEvent, dropIndex: number, dropPanelKey: string) => {
      e.preventDefault();
      e.currentTarget.classList.remove('drop-target');
  
@@ -2010,7 +2011,7 @@ const [panel1SelectedMonths, setPanel1SelectedMonths] = useState([]);
  
      setDraggedPanel(null);
    };
-   const onDragEnd = (e) => {
+   const _onDragEnd = (e: React.DragEvent) => {
      e.target.classList.remove('dragging');
      document.querySelectorAll('.drop-target').forEach(el => {
        el.classList.remove('drop-target');
@@ -2021,18 +2022,18 @@ const [panel1SelectedMonths, setPanel1SelectedMonths] = useState([]);
    const firstRowPanels = panelOrder.slice(0, 3);
    const secondRowPanels = panelOrder.slice(3);
  
-   const handleMaximize = (panelKey) => {
+   const _handleMaximize = (panelKey: string) => {
      setMaximizedPanel(panelKey);
      setOpenMenuPanel(null);
    };
  
-   const closeMaximize = () => {
+   const _closeMaximize = () => {
      setMaximizedPanel(null);
    };
- const [filterHistory, setFilterHistory] = useState([]);
+ const [_filterHistory, setFilterHistory] = useState([]);
    // History tab content component
    const HistoryTabContent = () => {
-     if (filterHistory.length === 0) {
+     if (_filterHistory.length === 0) {
        return <div className="text-sm text-gray-500">No history available11</div>;
      }
      return (
@@ -2116,7 +2117,7 @@ const [panel1SelectedMonths, setPanel1SelectedMonths] = useState([]);
       { name: 'GroupsVsSetsNew', icon: <FaFile /> }, 
      
   ];
-const [themeOpen, setThemeOpen] = useState(false);
+const [_themeOpen, _setThemeOpen] = useState(false);
   
 const pathname = usePathname();
 
@@ -2208,7 +2209,7 @@ const renderMenuItem = (item: any) => {
 //     );
 //   };
 const FormWorkflowContent = () => {
-  const [searchTerm, setSearchTerm] = useState('');
+  const [_searchTerm, _setSearchTerm] = useState('');
   const [tooltip, setTooltip] = useState({ visible: false, content: '', x: 0, y: 0 });
 
   const data = [

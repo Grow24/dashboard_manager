@@ -379,7 +379,7 @@ const ReportManager: React.FC = () => {
     if (!filteredData.length) return [];
     
     // Apply sorting
-    let sortedData = [...filteredData];
+    const sortedData = [...filteredData];
     if (sortBy.key) {
       sortedData.sort((a, b) => {
         const aVal = a[sortBy.key!];

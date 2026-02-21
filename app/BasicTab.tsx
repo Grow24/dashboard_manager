@@ -1,5 +1,5 @@
 import React, { useState, useEffect, createContext, useContext, useCallback } from 'react';
-import debounce from 'lodash.debounce';
+// import debounce from 'lodash.debounce'; // Unused
 import Autocomplete from '@mui/material/Autocomplete';
 import TextField from '@mui/material/TextField';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -24,7 +24,7 @@ const useQbHydration = () => {
   return { qbHydrated, setQbHydrated };
 };
 
-const safeParseQB = (qb: any) => {
+const safeParseQB = (qb: unknown) => {
   if (!qb) return null;
   if (typeof qb !== 'string') return qb;
   try {
@@ -37,20 +37,20 @@ interface Filter {
   id?: string;
   name: string;
   type: 'text' | 'number' | 'date' | 'select' | 'query' | 'lookup' | 'component';
-  config?: any;
+  config?: Record<string, unknown>;
   createdAt?: string | Date;
   updatedAt?: string | Date;
   isActive?: boolean;
   description?: string;
   tags?: string[];
   field?: string;
-  defaultValue?: any;
+  defaultValue?: unknown;
   placeholder?: string;
   required?: boolean;
   visible?: boolean;
   position?: number;
-  min?: any;
-  max?: any;
+  min?: number | string;
+  max?: number | string;
   pattern?: string;
   options?: string[];
   multiSelect?: boolean;
@@ -123,7 +123,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const stored = localStorage.getItem('theme');
       if (stored === 'dark' || stored === 'light') return stored;
       if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
-    } catch (e) {
+    } catch {
       // ignore
     }
     return 'light';
@@ -134,7 +134,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     try {
       localStorage.setItem('theme', theme);
-    } catch (e) {
+    } catch {
       // ignore localStorage errors
     }
     if (typeof document !== 'undefined') {
@@ -180,9 +180,9 @@ export const useTheme = () => {
       const isDark = document.documentElement.classList.toggle('dark');
       try {
         localStorage.setItem('theme', isDark ? 'dark' : 'light');
-      } catch (e) {
-        // ignore
-      }
+    } catch {
+      // ignore
+    }
     }
   };
 
@@ -323,7 +323,7 @@ const NestedQueryBuilder = ({
     });
   };
 
-  const updateFilter = (id: number, key: keyof WhereCondition, value: any) => {
+  const updateFilter = (id: number, key: keyof WhereCondition, value: unknown) => {
     onChange({
       ...nestedQuery,
       filters: nestedQuery.filters.map(f => f.id === id ? { ...f, [key]: value } : f)
@@ -480,7 +480,7 @@ const BasicTab: React.FC<BasicTabProps> = ({
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [touched, setTouched] = useState<{ [key: string]: boolean }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [localFilter, setLocalFilter] = React.useState<Partial<Filter>>({});
+  const [_localFilter, setLocalFilter] = React.useState<Partial<Filter>>({});
   const { theme, toggleTheme } = useTheme();
 const { qbHydrated, setQbHydrated } = useQbHydration();
 
@@ -534,7 +534,7 @@ const { qbHydrated, setQbHydrated } = useQbHydration();
   const [fieldOptionsMap, setFieldOptionsMap] = useState<{ [table: string]: { label: string; value: string }[] }>({});
 
   // Track current input value for highlighting
-  const [tableInputValue, setTableInputValue] = useState('');
+  const [_tableInputValue, setTableInputValue] = useState('');
 
   // Debounced function for table search
   const debouncedFetchTables = useCallback(
@@ -549,7 +549,7 @@ const { qbHydrated, setQbHydrated } = useQbHydration();
             if (!res.ok) throw new Error('Failed to fetch tables');
             const data: string[] = await res.json();
             setTableOptions(data);
-          } catch (e) {
+          } catch {
             console.error(e);
             setTableOptions([]);
           } finally {
@@ -572,7 +572,7 @@ useEffect(() => {
       if (!res.ok) throw new Error('Failed to fetch columns');
       const data: string[] = await res.json();
       setFieldOptionsMap(prev => ({ ...prev, [table]: data.map(col => ({ label: col, value: col })) }));
-    } catch (e) {
+    } catch {
       setFieldOptionsMap(prev => ({ ...prev, [table]: [] }));
     }
   }, [fieldOptionsMap]);
@@ -582,7 +582,7 @@ useEffect(() => {
   if (!isEditing || !editingFilter) return;
 
   const f = editingFilter;
-  const qbRaw = (f as any)?.queryBuilder;
+  const qbRaw = (f as Filter & { queryBuilder?: unknown })?.queryBuilder;
   const qb = safeParseQB(qbRaw);
   if (!qb) {
     setQbHydrated(false);
@@ -697,18 +697,18 @@ useEffect(() => {
 }, [activeTab, isEditing, qbHydrated, filter?.name]);
 
   // When user types in table name input
-  const handleTableInputChange = (_event: any, value: string, reason: string) => {
+  const handleTableInputChange = (_event: unknown, value: string, reason: string) => {
     if (reason === 'input') {
       setTableInputValue(value);
       debouncedFetchTables(value);
     }
   };
 
-  function handleFilterClick(_event) {
+  function _handleFilterClick(_event: React.MouseEvent) {
   console.log('Filter clicked', _event);
 }
 
-function handleFilterChange(_event) {
+function _handleFilterChange(_event: React.ChangeEvent) {
   console.log('Filter changed', _event.target.value);
 }
 function validateCssCode(css: string): string | null {
@@ -781,7 +781,7 @@ useEffect(() => {
             : { ...cond, field: options.length ? options[0].value : '' }
         )
       );
-    } catch (e) {
+    } catch {
       setFieldOptions([]);
       setFieldOptionsMap(prev => ({ ...prev, [tableName]: [] }));
     } finally {
@@ -812,7 +812,7 @@ useEffect(() => {
   }, [joinConfig.primaryTable, joinConfig.secondaryTable, joinConfig.primaryColumn, joinConfig.secondaryColumn, joinConfig.primaryAlias, joinConfig.secondaryAlias]);
 
   // Handle join config changes
-  const updateJoinConfig = (key: keyof JoinConfig, value: any) => {
+  const updateJoinConfig = (key: keyof JoinConfig, value: unknown) => {
     setJoinConfig(jc => ({ ...jc, [key]: value }));
   };
 
@@ -862,7 +862,7 @@ useEffect(() => {
   };
 
   // --- WHERE Condition Handlers ---
-  const handleWhereChange = (id: number, key: keyof WhereCondition, value: any) => {
+  const handleWhereChange = (id: number, key: keyof WhereCondition, value: unknown) => {
     setWhereConditions(conds =>
       conds.map(cond => cond.id === id ? { ...cond, [key]: value } : cond)
     );
@@ -919,7 +919,7 @@ useEffect(() => {
     setWindowFunctionConfigs(configs => configs.filter(config => config.id !== id));
   };
 
-  const updateWindowFunction = (id: number, key: keyof WindowFunctionConfig, value: any) => {
+  const updateWindowFunction = (id: number, key: keyof WindowFunctionConfig, value: unknown) => {
     setWindowFunctionConfigs(configs =>
       configs.map(config => config.id === id ? { ...config, [key]: value } : config)
     );
@@ -1091,7 +1091,7 @@ useEffect(() => {
 
   // Update filter helper (existing)
   const updateFilter = (updates: Partial<Filter>) => {
-  let newUpdates: Partial<Filter> = { ...updates };
+  const newUpdates: Partial<Filter> = { ...updates };
   if ('type' in updates && updates.type !== 'select') {
     newUpdates.webapi = '';
     newUpdates.webapiType = undefined;
@@ -1110,9 +1110,13 @@ useEffect(() => {
   setLocalFilter(prev => ({ ...prev, ...newUpdates }));
 
   if (isEditing && editingFilter) {
-    setEditingFilter && setEditingFilter({ ...editingFilter, ...newUpdates });
+    if (setEditingFilter) {
+      setEditingFilter({ ...editingFilter, ...newUpdates });
+    }
   } else {
-    setNewFilter && setNewFilter({ ...(propFilter ?? newFilter ?? {}), ...newUpdates });
+    if (setNewFilter) {
+      setNewFilter({ ...(propFilter ?? newFilter ?? {}), ...newUpdates });
+    }
   }
 
   // Clear errors for updated fields
@@ -1230,7 +1234,7 @@ if (!dynamicFieldPattern.test(fieldValue)) {
         try {
           JSON.parse(advConfigStr);
           delete newErrors.advancedConfig;
-        } catch (e) {
+        } catch {
           newErrors.advancedConfig = 'Invalid JSON format';
         }
       } else {
@@ -1320,7 +1324,7 @@ if (!filter.field || filter.field.trim() === '') {
   if (advConfigStr.trim()) {
     try {
       JSON.parse(advConfigStr);
-    } catch (e) {
+    } catch {
       newErrors.advancedConfig = 'Invalid JSON format';
     }
   }
@@ -1400,7 +1404,7 @@ if (!filter.field || filter.field.trim() === '') {
         ? JSON.stringify(filter.advancedConfig)
         : '',
     cssClass: filter.cssClass || '',
-    cssCode: (filter as any).cssCode || '',
+    cssCode: (filter as Filter & { cssCode?: string }).cssCode || '',
     inlineStyle: filter.inlineStyle || '',
     
     // ✅ Event handlers
@@ -1412,18 +1416,18 @@ if (!filter.field || filter.field.trim() === '') {
     onKeyUpHandler: filter.onKeyUpHandler || '',
     
     // ✅ Event handler params and responses
-    onClickHandlerParams: (filter as any).onClickHandlerParams || '',
-    onClickHandlerResponse: (filter as any).onClickHandlerResponse || '',
-    onBlurHandlerParams: (filter as any).onBlurHandlerParams || '',
-    onBlurHandlerResponse: (filter as any).onBlurHandlerResponse || '',
-    onChangeHandlerParams: (filter as any).onChangeHandlerParams || '',
-    onChangeHandlerResponse: (filter as any).onChangeHandlerResponse || '',
-    onFocusHandlerParams: (filter as any).onFocusHandlerParams || '',
-    onFocusHandlerResponse: (filter as any).onFocusHandlerResponse || '',
-    onKeyDownHandlerParams: (filter as any).onKeyDownHandlerParams || '',
-    onKeyDownHandlerResponse: (filter as any).onKeyDownHandlerResponse || '',
-    onKeyUpHandlerParams: (filter as any).onKeyUpHandlerParams || '',
-    onKeyUpHandlerResponse: (filter as any).onKeyUpHandlerResponse || '',
+    onClickHandlerParams: (filter as Filter & { onClickHandlerParams?: string }).onClickHandlerParams || '',
+    onClickHandlerResponse: (filter as Filter & { onClickHandlerResponse?: string }).onClickHandlerResponse || '',
+    onBlurHandlerParams: (filter as Filter & { onBlurHandlerParams?: string }).onBlurHandlerParams || '',
+    onBlurHandlerResponse: (filter as Filter & { onBlurHandlerResponse?: string }).onBlurHandlerResponse || '',
+    onChangeHandlerParams: (filter as Filter & { onChangeHandlerParams?: string }).onChangeHandlerParams || '',
+    onChangeHandlerResponse: (filter as Filter & { onChangeHandlerResponse?: string }).onChangeHandlerResponse || '',
+    onFocusHandlerParams: (filter as Filter & { onFocusHandlerParams?: string }).onFocusHandlerParams || '',
+    onFocusHandlerResponse: (filter as Filter & { onFocusHandlerResponse?: string }).onFocusHandlerResponse || '',
+    onKeyDownHandlerParams: (filter as Filter & { onKeyDownHandlerParams?: string }).onKeyDownHandlerParams || '',
+    onKeyDownHandlerResponse: (filter as Filter & { onKeyDownHandlerResponse?: string }).onKeyDownHandlerResponse || '',
+    onKeyUpHandlerParams: (filter as Filter & { onKeyUpHandlerParams?: string }).onKeyUpHandlerParams || '',
+    onKeyUpHandlerResponse: (filter as Filter & { onKeyUpHandlerResponse?: string }).onKeyUpHandlerResponse || '',
     
     config: JSON.stringify(filter.config || {}),
 
@@ -1443,7 +1447,7 @@ if (!filter.field || filter.field.trim() === '') {
       queryPreview: buildQuery(),
     }),
 
-    createdAt: isEditing ? (filter as any).createdAt : new Date().toISOString(),
+    createdAt: isEditing ? (filter as Filter & { createdAt?: string }).createdAt : new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...(isEditing && filter.id ? { id: filter.id } : {}),
   };
@@ -1481,13 +1485,21 @@ if (!filter.field || filter.field.trim() === '') {
     alert(isEditing ? 'Filter updated successfully!' : 'Filter created successfully!');
     
     if (isEditing) {
-      setEditingFilter && setEditingFilter(null);
+      if (setEditingFilter) {
+        setEditingFilter(null);
+      }
     } else {
-      resetNewFilter && resetNewFilter();
+      if (resetNewFilter) {
+        resetNewFilter();
+      }
     }
 
-    fetchFilters && fetchFilters();
-    onCancel && onCancel();
+    if (fetchFilters) {
+      fetchFilters();
+    }
+    if (onCancel) {
+      onCancel();
+    }
   } catch (error) {
     console.error('Error:', error);
     alert('An error occurred: ' + error);
@@ -1531,7 +1543,7 @@ const getFieldClassName = (fieldName: string, baseClassName: string) => {
                     ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
                     : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
                 }`}
-                onClick={() => setActiveTab(tab as any)}
+                onClick={() => setActiveTab(tab as 'basic' | 'queryBuilder' | 'advanced' | 'events')}
                 type="button"
               >
                 {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -1778,7 +1790,7 @@ onBlur={() => handleBlur('field')}
     {filter.cssClass && filter.cssClass.trim() !== '' && (
       <div className="form-group mb-4">
         <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">
-          CSS for "{filter.cssClass}"
+          CSS for &quot;{filter.cssClass}&quot;
         </label>
         <textarea
           value={filter.cssCode || ''}
@@ -1821,7 +1833,7 @@ onBlur={() => handleBlur('field')}
           {/* function name */}
           <input
             type="text"
-            value={(filter as any)[key] || ''}
+            value={(filter as Record<string, unknown>)[key] as string || ''}
             onChange={(e) => updateFilter({ [key]: e.target.value })}
             placeholder={`e.g. handle${label.replace(' Handler', '')}`}
             className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 mb-2 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:text-white"
@@ -1831,7 +1843,7 @@ onBlur={() => handleBlur('field')}
           <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Parameters (comma-separated or JSON):</label>
           <input
             type="text"
-            value={(filter as any)[`${key}Params`] || ''}
+            value={(filter as Record<string, unknown>)[`${key}Params`] as string || ''}
             onChange={(e) => updateFilter({ [`${key}Params`]: e.target.value })}
             placeholder={`e.g. id, 'abc', 123  or  {"id":123,"flag":true}`}
             className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 mb-2 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:text-white"
@@ -1840,7 +1852,7 @@ onBlur={() => handleBlur('field')}
           {/* response type */}
           <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Expected Response:</label>
           <select
-            value={(filter as any)[`${key}Response`] || ''}
+            value={(filter as Record<string, unknown>)[`${key}Response`] as string || ''}
             onChange={(e) => updateFilter({ [`${key}Response`]: e.target.value })}
             className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:text-white"
           >
@@ -2684,7 +2696,7 @@ onBlur={() => handleBlur('field')}
                     ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
                     : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
                 }`}
-                onClick={() => setActiveTab(tab as any)}
+                onClick={() => setActiveTab(tab as 'basic' | 'queryBuilder' | 'advanced' | 'events')}
                 type="button"
               >
                 {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -2997,7 +3009,7 @@ onBlur={() => handleBlur('field')}
                     <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">{label}:</label>
                     <input
                       type="text"
-                      value={(filter as any)[key] || ''}
+                      value={(filter as Record<string, unknown>)[key] as string || ''}
                       onChange={(e) => updateFilter({ [key]: e.target.value })}
                       placeholder={`e.g. handle${label.replace(' Handler', '')}`}
                       className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:text-white"

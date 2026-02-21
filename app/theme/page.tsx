@@ -378,7 +378,7 @@ function DrillableBarChart({
     setProductDrillAcross({ type: 'by-state', scope: 'all' });
     setContextMenu({ ...contextMenu, show: false });
   };
-const [filterHistory, setFilterHistory] = useState([]);
+const [_filterHistory, setFilterHistory] = useState([]);
   const resetStackedView = () => {
     setStackingMode(null);
     setDrillAcross(null);
@@ -504,7 +504,7 @@ const [filterHistory, setFilterHistory] = useState([]);
         const allStates = new Set();
         Object.values(stateData).forEach(list => list.forEach(s => allStates.add(s.state)));
         keys = Array.from(allStates);
-        data = Object.entries(stateData).map(([month, stateList]) => {
+        const _data = Object.entries(stateData).map(([month, stateList]) => {
           const entry = { name: month };
           keys.forEach(k => {
             const st = stateList.find(s => s.state === k);
@@ -1031,6 +1031,7 @@ const Modal = forwardRef(({ children, onClose }, ref) => {
     document.body
   );
 });
+Modal.displayName = 'Modal';
 
 // Panel component with controlled menu open state setMenuOpenGlobal
 const Panel = ({
@@ -1306,7 +1307,7 @@ const filteredDrillDataPanel1 = filterDataForPanel({
   panelOnCurrentPage: true,
 });
 
-const filteredDrillDataOtherPanels = filterDataForPanel({
+const _filteredDrillDataOtherPanels = filterDataForPanel({
   data: mergeUsers(drillDataStatic),
   globalFilters: { minUsers, maxUsers, selectedMonths },
   pageFilters: { minUsers: page1MinUsers, maxUsers: page1MaxUsers, selectedMonths: page1SelectedMonths },
@@ -1347,7 +1348,7 @@ const applyGlobalFilters = (data) => {
 };
 
 // const filteredDrillData = applyGlobalFilters(mergeUsers(drillDataStatic));
-const filteredOriginalData = applyGlobalFilters(originalData);
+const _filteredOriginalData = applyGlobalFilters(originalData);
 const [page2MinUsers, setPage2MinUsers] = useState('');
   const [page2MaxUsers, setPage2MaxUsers] = useState('');
   const [page2SelectedMonths, setPage2SelectedMonths] = useState([]);
@@ -1463,7 +1464,7 @@ const [page2MinUsers, setPage2MinUsers] = useState('');
      });
    }, [selectedPanels]);
  
-   const dragItemIndex = useRef(null);
+   const _dragItemIndex = useRef(null);
    const [draggedPanel, setDraggedPanel] = useState(null);
  
    const onDragStart = (e, index, panelKey) => {

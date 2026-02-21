@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import HoverCard from './HoverCard'; // Adjust path if HoverCard is in a different file
-import { FiMove, FiTrash2, FiEdit, FiScissors, FiMoreVertical } from 'react-icons/fi';
+// import { FiMove, FiTrash2, FiEdit, FiScissors, FiMoreVertical } from 'react-icons/fi'; // Unused
 
 const DashboardContent = () => {
   const containerRef = useRef<HTMLDivElement>(null);

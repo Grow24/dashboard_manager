@@ -462,7 +462,7 @@ function FilterTab({ filter, onSaved }) {
       }
       setErrors({});
       return true;
-    } catch (e) {
+    } catch (_e) {
       setErrors({ general: "Validation failed. Please check your inputs." });
       return false;
     } finally {
@@ -940,7 +940,7 @@ function applyMockFilter(data, filter) {
       case "context": if (config.field && config.condition) filtered = applyContextFilter(filtered, config); break;
       default: filtered = filtered.slice(0, Math.floor(filtered.length * 0.7));
     }
-  } catch (e) { return data; }
+  } catch (_e) { return data; }
   return filtered;
 }
 function applyExtractFilter(data, config) {

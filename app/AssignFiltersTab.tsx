@@ -23,15 +23,15 @@ export default function AssignFiltersTab({ apiBaseUrl }: Props) {
   const [scope, setScope] = useState<Scope>({ kind: "dashboard" });
   const [selectedFilterIds, setSelectedFilterIds] = useState<Set<number>>(new Set());
 
-  const [isLoadingDashboards, setIsLoadingDashboards] = useState(false);
-  const [isLoadingWidgets, setIsLoadingWidgets] = useState(false);
-  const [isLoadingFilters, setIsLoadingFilters] = useState(false);
+  const [_isLoadingDashboards, setIsLoadingDashboards] = useState(false);
+  const [_isLoadingWidgets, setIsLoadingWidgets] = useState(false);
+  const [_isLoadingFilters, setIsLoadingFilters] = useState(false);
   const [isLoadingAssigned, setIsLoadingAssigned] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, _setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
-  const selectedDashboard = useMemo(() => {
+  const _selectedDashboard = useMemo(() => {
     if (selectedDashboardId === "") return null;
     return dashboards.find(d => d.id === selectedDashboardId) ?? null;
   }, [dashboards, selectedDashboardId]);
@@ -118,7 +118,11 @@ export default function AssignFiltersTab({ apiBaseUrl }: Props) {
   function toggleFilter(id: number) {
     setSelectedFilterIds(prev => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
   }
@@ -141,7 +145,7 @@ export default function AssignFiltersTab({ apiBaseUrl }: Props) {
         body: JSON.stringify(payload),
       });
 
-      const json: ApiResponse<{}> = await res.json();
+      const json: ApiResponse<Record<string, never>> = await res.json();
       if (json.success) setStatus("Assignments saved successfully ✅");
     } finally {
       setIsSaving(false);

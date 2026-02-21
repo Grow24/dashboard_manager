@@ -151,7 +151,7 @@ const DashboardCreation: React.FC = () => {
   ]);
   const [selectedTab, setSelectedTab] = useState<SelectedTab>({ type: 'page', id: pages[0].id });
   const [selectedPanelId, setSelectedPanelId] = useState<string | null>(null);
-  const [selectedComponent, setSelectedComponent] = useState<string>('None');
+  const [_selectedComponent, _setSelectedComponent] = useState<string>('None');
   const [showVisualizer, setShowVisualizer] = useState<boolean>(false);
   const [selectedVisual, setSelectedVisual] = useState<Visual | null>(null);
   const [rowFields, setRowFields] = useState<string[]>([]);

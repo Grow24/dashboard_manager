@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import { FaCog } from 'react-icons/fa';
-import { HiMenuAlt2 } from 'react-icons/hi';
+// import { HiMenuAlt2 } from 'react-icons/hi'; // Unused
 import { motion, AnimatePresence } from 'framer-motion';
-import ReactECharts from 'echarts-for-react';
+// import ReactECharts from 'echarts-for-react'; // Unused
 
 import {
   ResponsiveContainer,
@@ -15,11 +15,6 @@ import {
   CartesianGrid,
   Tooltip as ChartTooltip,
   Legend,
-  PieChart,
-  Pie,
-  Cell,
-  AreaChart,
-  Area
 } from 'recharts';
 import { Responsive, WidthProvider } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
@@ -40,7 +35,7 @@ import {
 } from "@/components/ui/tooltip";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
-const COLORS = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#3B82F6', '#8B5CF6'];
+const _COLORS = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#3B82F6', '#8B5CF6'];
 
 const originalData = [
   { name: 'Jan', users: 10 },
@@ -56,8 +51,8 @@ const originalData = [
 ];
 
 export default function Page() {
-  const [collapsed, setCollapsed] = useState(false);
-  const [collapsedNew, setCollapsedNew] = useState(false);
+  const [_collapsed, _setCollapsed] = useState(false);
+  const [_collapsedNew, _setCollapsedNew] = useState(false);
   const [selectedPanels, setSelectedPanels] = useState({
     panel1: true,
     panel2: true,
@@ -66,7 +61,7 @@ export default function Page() {
     panel5: true,
   });
 
-  const handlePanelChange = (panel) => {
+  const _handlePanelChange = (panel: any) => {
     setSelectedPanels((prev) => ({
       ...prev,
       [panel]: !prev[panel],
@@ -108,7 +103,7 @@ export default function Page() {
     return { lg: baseLayouts };
   };
 
-  const Panel = ({ title, children, panelKey }) => {
+  const Panel = ({ title, children, _panelKey }: { title: string; children: React.ReactNode; _panelKey?: string }) => {
     const [menuOpen, setMenuOpen] = useState(false);
 
     return (

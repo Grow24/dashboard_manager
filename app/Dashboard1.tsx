@@ -20,10 +20,10 @@ const SAMPLE_PRODUCTS = [
 ];
 
 export const FilterDemo: React.FC = () => {
-  const [filters, setFilters] = useState<any[]>([]);
+  const [filters, setFilters] = useState<Record<string, unknown>[]>([]);
   const [selectedFilter, setSelectedFilter] = useState<string>('');
   const [filteredData, setFilteredData] = useState(SAMPLE_PRODUCTS);
-  const [currentFilters, setCurrentFilters] = useState<Record<string, any>>({});
+  const [currentFilters, setCurrentFilters] = useState<Record<string, unknown>>({});
   const userId = 'demo-user-123'; // In real app, get from auth
 
   useEffect(() => {
@@ -44,11 +44,11 @@ export const FilterDemo: React.FC = () => {
     }
   };
 
-  const handleFilterChange = (values: Record<string, any>) => {
+  const handleFilterChange = (values: Record<string, unknown>) => {
     setCurrentFilters(values);
   };
 
-  const handleFilterApply = (values: Record<string, any>) => {
+  const handleFilterApply = (values: Record<string, unknown>) => {
     console.log('Applying filters:', values);
     
     // Filter the sample data based on filter values

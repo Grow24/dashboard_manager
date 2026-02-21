@@ -130,7 +130,7 @@ export default function MultiPageWithFooterTabs() {
 
       {/* Footer with pages and add page button */}
       <footer style={{ borderTop: '1px solid #ccc', padding: 10, backgroundColor: '#f9f9f9', display: 'flex', justifyContent: 'center', gap: 10 }}>
-        {pages.map((page, index) => (
+        {pages.map((page) => (
           <button
             key={page.id}
             onClick={() => handlePageChange(page.id)}

@@ -139,7 +139,7 @@ const optionSegmentedLine = {
     showSymbol: false,
   })),
 };
-const optionMap = {
+const _optionMap = {
   geo: {
     map: 'world',
     roam: true,

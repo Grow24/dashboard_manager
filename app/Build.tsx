@@ -11,7 +11,7 @@ const DashboardLayout = () => {
   const [draggedPanel, setDraggedPanel] = useState(null);
   const [resizingPanel, setResizingPanel] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [panelSizes, setPanelSizes] = useState({});
+  const [_panelSizes, _setPanelSizes] = useState({});
   const panelRefs = useRef({});
 
   const addPanel = () => {
@@ -64,7 +64,7 @@ const DashboardLayout = () => {
     setResizingPanel(panelId);
   };
 
-  const handleMouseMove = (e) => {
+  const handleMouseMove = () => {
     if (resizingPanel) {
       // In a real implementation, this would adjust panel dimensions
       // For this demo, we'll just show the resizing effect
