@@ -18,7 +18,21 @@ import { AddCircleOutline, RemoveCircleOutline, ExpandMore } from '@mui/icons-ma
 // Also import icons you use:
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
+// --- QB Hydration helpers ---
+const useQbHydration = () => {
+  const [qbHydrated, setQbHydrated] = React.useState(false);
+  return { qbHydrated, setQbHydrated };
+};
 
+const safeParseQB = (qb: any) => {
+  if (!qb) return null;
+  if (typeof qb !== 'string') return qb;
+  try {
+    return JSON.parse(qb);
+  } catch {
+    return null;
+  }
+};
 interface Filter {
   id?: string;
   name: string;
@@ -53,6 +67,8 @@ interface Filter {
   onFocusHandler?: string;
   onKeyDownHandler?: string;
   onKeyUpHandler?: string;
+  queryPreview?: boolean;
+  filterApply?: 'Live' | 'Manual';
 }
 
 interface ValidationErrors {
@@ -68,16 +84,19 @@ interface ValidationErrors {
   inlineStyle?: string;
 }
 
-interface FilterModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  isEditing: boolean;
-  editingFilter: Filter | null;
-  setEditingFilter: (filter: Filter | null) => void;
-  newFilter: Partial<Filter>;
-  setNewFilter: (filter: Partial<Filter>) => void;
-  resetNewFilter: () => void;
-  onSubmit?: () => void;
+// New props for parent mode
+interface BasicTabProps {
+  filter: Partial<Filter> | null;
+  isEditing?: boolean;
+  editingFilter?: Filter | null;
+  newFilter?: Partial<Filter>;
+  setNewFilter?: (filter: Partial<Filter>) => void;
+  resetNewFilter?: () => void;
+  fetchFilters?: () => void;
+  parentMode?: 'modal' | 'inline';
+  onSave?: (filterData: Partial<Filter>, isEditing?: boolean) => Promise<boolean> | boolean;
+  onCancel?: () => void;
+  setEditingFilter?: (filter: Filter | null) => void;
 }
 
 // --- Theme Context and Provider ---
@@ -91,23 +110,83 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
+/**
+ * ThemeProvider
+ * - Reads initial theme from localStorage (key: 'theme') or system preference.
+ * - Persists changes to localStorage.
+ * - Adds/removes 'dark' class on document.documentElement so Tailwind's `dark:` variants work globally.
+ * - Also wraps children (scoped) so components relying on context can read theme.
+ */
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [theme, setTheme] = useState<Theme>('light');
+  const getInitialTheme = (): Theme => {
+    try {
+      const stored = localStorage.getItem('theme');
+      if (stored === 'dark' || stored === 'light') return stored;
+      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
+    } catch (e) {
+      // ignore
+    }
+    return 'light';
+  };
 
-  const toggleTheme = () => setTheme(theme === 'light' ? 'dark' : 'light');
+  const [theme, setTheme] = useState<Theme>(getInitialTheme);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('theme', theme);
+    } catch (e) {
+      // ignore localStorage errors
+    }
+    if (typeof document !== 'undefined') {
+      if (theme === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    }
+  }, [theme]);
+
+  const toggleTheme = () => setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>
-      {/* Add 'dark' class to root div for Tailwind dark mode */}
-      <div className={theme === 'dark' ? 'dark' : ''}>{children}</div>
+      {/* Keep wrapper if components use nested dark: styles; but since we also set document root class,
+          this is mostly a convenience and does no harm. */}
+      <div className={theme === 'dark' ? 'dark' : ''}>
+        {children}
+      </div>
     </ThemeContext.Provider>
   );
 };
 
+/**
+ * useTheme hook
+ * - Returns ThemeContext if available.
+ * - If provider is missing, falls back to reading document.documentElement.classList and provides a toggle
+ *   that manipulates the root and localStorage (safe fallback).
+ */
 export const useTheme = () => {
   const context = useContext(ThemeContext);
-  if (!context) throw new Error('useTheme must be used within ThemeProvider');
-  return context;
+  if (context) return context;
+
+  // Fallback: don't throw, provide a basic implementation that toggles the root class
+  const getCurrent = (): Theme => {
+    if (typeof document !== 'undefined' && document.documentElement.classList.contains('dark')) return 'dark';
+    return 'light';
+  };
+
+  const toggleTheme = () => {
+    if (typeof document !== 'undefined') {
+      const isDark = document.documentElement.classList.toggle('dark');
+      try {
+        localStorage.setItem('theme', isDark ? 'dark' : 'light');
+      } catch (e) {
+        // ignore
+      }
+    }
+  };
+
+  return { theme: getCurrent(), toggleTheme };
 };
 
 // --- Query Builder Inner Components and Types ---
@@ -255,8 +334,6 @@ const NestedQueryBuilder = ({
     onChange({ ...nestedQuery, nestedQuery: q });
   };
 
-  
-
   return (
     <Box sx={{ borderLeft: '3px solid #1976d2', pl: 2, mt: 2, mb: 2 }}>
       <Typography variant="subtitle2" sx={{ mb: 1 }}>Level {level} Nested Query</Typography>
@@ -384,28 +461,33 @@ const NestedQueryBuilder = ({
   );
 };
 
-// --- FilterModal Component ---
+// --- Main BasicTab Component ---
 
-const FilterModal: React.FC<FilterModalProps> = ({
-  isOpen,
-  onClose,
+const BasicTab: React.FC<BasicTabProps> = ({
+  filter: propFilter,
   isEditing,
   editingFilter,
-  setEditingFilter,
   newFilter,
   setNewFilter,
   resetNewFilter,
-  onSubmit,
+  fetchFilters,
+  parentMode = 'inline',
+  onSave,
+  onCancel,
+  setEditingFilter
 }) => {
   const [activeTab, setActiveTab] = useState<'basic' | 'styling' | 'events' | 'validation' | 'options' | 'queryBuilder'>('basic');
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [touched, setTouched] = useState<{ [key: string]: boolean }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
-
+  const [localFilter, setLocalFilter] = React.useState<Partial<Filter>>({});
   const { theme, toggleTheme } = useTheme();
+const { qbHydrated, setQbHydrated } = useQbHydration();
 
-  const filter = isEditing && editingFilter ? editingFilter : newFilter;
+  const filter = React.useMemo(
+  () => (isEditing ? editingFilter ?? {} : propFilter ?? newFilter ?? {}),
+  [isEditing, editingFilter, propFilter, newFilter]
+);
 
   // --- States for Query Builder tab (replacing old queryBuilder tab content) ---
 
@@ -417,6 +499,7 @@ const FilterModal: React.FC<FilterModalProps> = ({
   const [whereConditions, setWhereConditions] = useState<WhereCondition[]>([
     { id: 1, field: '', operator: '=', value: '', logicalOperator: 'AND', conditionGroup: 1, valueType: 'constant' }
   ]);
+  const [cssCodeError, setCssCodeError] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState('');
   const [having, setHaving] = useState('');
   const [orderBy, setOrderBy] = useState('');
@@ -477,7 +560,10 @@ const FilterModal: React.FC<FilterModalProps> = ({
     })(),
     []
   );
-
+useEffect(() => {
+  const incoming = isEditing ? editingFilter ?? {} : propFilter ?? newFilter ?? {};
+  setLocalFilter(incoming);
+}, [isEditing, editingFilter, propFilter, newFilter]);
   // Fetch fields for a table (for nested queries and join output columns)
   const fetchFieldsForTable = useCallback(async (table: string) => {
     if (!table || fieldOptionsMap[table]) return;
@@ -490,40 +576,125 @@ const FilterModal: React.FC<FilterModalProps> = ({
       setFieldOptionsMap(prev => ({ ...prev, [table]: [] }));
     }
   }, [fieldOptionsMap]);
+  // ✅ Hydrate QueryBuilder tab fields when editing an existing filter
+// ✅ Hydrate QueryBuilder tab fields when editing an existing filter
+useEffect(() => {
+  if (!isEditing || !editingFilter) return;
 
-  // Reset form when modal opens or tab changes to queryBuilder
-  useEffect(() => {
-    if (isOpen && activeTab === 'queryBuilder') {
-      setName(filter.name || '');
-      setStatement(sqlStatements[0]);
-      setColumns('*');
-      setTableName('');
-      setWhereConditions([
-        { id: 1, field: '', operator: '=', value: '', logicalOperator: 'AND', conditionGroup: 1, valueType: 'constant' }
-      ]);
-      setGroupBy('');
-      setHaving('');
-      setOrderBy('');
-      setLimit('');
-      setError(null);
-      setTableOptions([]);
-      setFieldOptions([]);
-      setTableInputValue('');
-      setWindowFunctionConfigs([]);
-      setFieldOptionsMap({});
-      setJoinConfig({
-        joinType: 'INNER',
-        primaryTable: '',
-        primaryAlias: 'c',
-        primaryColumn: '',
-        secondaryTable: '',
-        secondaryAlias: 'o',
-        secondaryColumn: '',
-        joinCondition: '',
-        outputColumns: []
-      });
+  const f = editingFilter;
+  const qbRaw = (f as any)?.queryBuilder;
+  const qb = safeParseQB(qbRaw);
+  if (!qb) {
+    setQbHydrated(false);
+    return;
+  }
+
+  setName(qb.name ?? f.name ?? '');
+  setStatement(qb.statement ?? 'SELECT');
+  setColumns(qb.columns ?? '*');
+  setTableName(qb.tableName ?? '');
+  setWhereConditions(
+    Array.isArray(qb.whereConditions) && qb.whereConditions.length
+      ? qb.whereConditions
+      : [
+          {
+            id: 1,
+            field: '',
+            operator: '=',
+            value: '',
+            logicalOperator: 'AND',
+            conditionGroup: 1,
+            valueType: 'constant',
+          },
+        ]
+  );
+  setGroupBy(qb.groupBy ?? '');
+  setHaving(qb.having ?? '');
+  setOrderBy(qb.orderBy ?? '');
+  setLimit(qb.limit ?? '');
+  setWindowFunctionConfigs(Array.isArray(qb.windowFunctionConfigs) ? qb.windowFunctionConfigs : []);
+  setJoinConfig(
+    qb.joinConfig ?? {
+      joinType: 'INNER',
+      primaryTable: '',
+      primaryAlias: 'c',
+      primaryColumn: '',
+      secondaryTable: '',
+      secondaryAlias: 'o',
+      secondaryColumn: '',
+      joinCondition: '',
+      outputColumns: [],
     }
-  }, [isOpen, activeTab, filter.name]);
+  );
+
+  // Prefetch fields for table and join tables
+  (async () => {
+    try {
+      if (qb.tableName) {
+        const res = await fetch(
+          `https://intelligentsalesman.com/ism1/API/gettableinfo.php/api/columns?table=${encodeURIComponent(qb.tableName)}`
+        );
+        if (res.ok) {
+          const data: string[] = await res.json();
+          const options = data.map(col => ({ label: col, value: col }));
+          setFieldOptions(options);
+          setFieldOptionsMap(prev => ({ ...prev, [qb.tableName]: options }));
+        }
+      }
+      if (qb.joinConfig?.primaryTable) await fetchFieldsForTable(qb.joinConfig.primaryTable);
+      if (qb.joinConfig?.secondaryTable) await fetchFieldsForTable(qb.joinConfig.secondaryTable);
+    } finally {
+      setQbHydrated(true);
+    }
+  })();
+}, [isEditing, editingFilter?.id]);
+
+  // Reset form when tab changes to queryBuilder
+  // Reset form when tab changes to queryBuilder
+useEffect(() => {
+  if (activeTab !== 'queryBuilder') return;
+
+  // If editing and we already hydrated QB, do not reset.
+  if (isEditing && qbHydrated) return;
+
+  // Create mode defaults (or edit mode with no QB data)
+  setName(filter.name || '');
+  setStatement(sqlStatements[0]);
+  setColumns('*');
+  setTableName('');
+  setWhereConditions([
+    {
+      id: 1,
+      field: '',
+      operator: '=',
+      value: '',
+      logicalOperator: 'AND',
+      conditionGroup: 1,
+      valueType: 'constant',
+    },
+  ]);
+  setGroupBy('');
+  setHaving('');
+  setOrderBy('');
+  setLimit('');
+  setError(null);
+  setTableOptions([]);
+  setFieldOptions([]);
+  setTableInputValue('');
+  setWindowFunctionConfigs([]);
+  setFieldOptionsMap({});
+  setJoinConfig({
+    joinType: 'INNER',
+    primaryTable: '',
+    primaryAlias: 'c',
+    primaryColumn: '',
+    secondaryTable: '',
+    secondaryAlias: 'o',
+    secondaryColumn: '',
+    joinCondition: '',
+    outputColumns: [],
+  });
+}, [activeTab, isEditing, qbHydrated, filter?.name]);
 
   // When user types in table name input
   const handleTableInputChange = (_event: any, value: string, reason: string) => {
@@ -540,10 +711,49 @@ const FilterModal: React.FC<FilterModalProps> = ({
 function handleFilterChange(_event) {
   console.log('Filter changed', _event.target.value);
 }
+function validateCssCode(css: string): string | null {
+  if (!css || css.trim() === '') return null;
+  // check balanced braces
+  const open = (css.match(/{/g) || []).length;
+  const close = (css.match(/}/g) || []).length;
+  if (open !== close) {
+    return `Mismatched braces: ${open} '{' vs ${close} '}'`;
+  }
+  // basic per-line check for "property: value;" inside braces
+  const lines = css.split('\n');
+  let inBlock = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    if (line.endsWith('{')) {
+      inBlock = true;
+      continue;
+    }
+    if (line === '}') {
+      inBlock = false;
+      continue;
+    }
+    if (inBlock) {
+      // allow comments and var declarations
+      if (line.startsWith('/*') || line.startsWith('//')) continue;
+      // property lines should contain ':' (colon)
+      if (!line.includes(':')) {
+        return `Syntax error near line ${i + 1}: missing ':' in declaration`;
+      }
+      // optional: check for semicolon at end
+      // if (!line.trim().endsWith(';')) return `Missing semicolon near line ${i + 1}`;
+    } else {
+      // outside block, allow selectors or closing braces
+      continue;
+    }
+  }
+  return null;
+}
 
   // When table is selected, fetch fields for that table
-  useEffect(() => {
-    if (!tableName) {
+  // When table is selected, fetch fields for that table
+useEffect(() => {
+  if (!tableName) {
       setFieldOptions([]);
       setWhereConditions(conds =>
         conds.map(cond => ({ ...cond, field: '' }))
@@ -551,35 +761,36 @@ function handleFilterChange(_event) {
       return;
     }
 
-    const fetchFields = async () => {
-      setFieldsLoading(true);
-      try {
-        const res = await fetch(`https://intelligentsalesman.com/ism1/API/gettableinfo.php/api/columns?table=${encodeURIComponent(tableName)}`);
-        if (!res.ok) throw new Error('Failed to fetch columns');
-        const data: string[] = await res.json();
-        const options = data.map(col => ({ label: col, value: col }));
-        setFieldOptions(options);
-        setFieldOptionsMap(prev => ({ ...prev, [tableName]: options }));
+  const fetchFields = async () => {
+    setFieldsLoading(true);
+    try {
+      const res = await fetch(
+        `https://intelligentsalesman.com/ism1/API/gettableinfo.php/api/columns?table=${encodeURIComponent(tableName)}`
+      );
+      if (!res.ok) throw new Error('Failed to fetch columns');
+      const data: string[] = await res.json();
+      const options = data.map(col => ({ label: col, value: col }));
+      setFieldOptions(options);
+      setFieldOptionsMap(prev => ({ ...prev, [tableName]: options }));
 
-        // Update whereConditions fields if empty or invalid
-        setWhereConditions(conds =>
-          conds.map(cond => {
-            if (!options.find(o => o.value === cond.field)) {
-              return { ...cond, field: options.length ? options[0].value : '' };
-            }
-            return cond;
-          })
-        );
-      } catch (e) {
-        setFieldOptions([]);
-        setFieldOptionsMap(prev => ({ ...prev, [tableName]: [] }));
-      } finally {
-        setFieldsLoading(false);
-      }
-    };
+      // Normalize only invalid fields (don’t overwrite valid user selections)
+      setWhereConditions(conds =>
+        conds.map(cond =>
+          options.find(o => o.value === cond.field)
+            ? cond
+            : { ...cond, field: options.length ? options[0].value : '' }
+        )
+      );
+    } catch (e) {
+      setFieldOptions([]);
+      setFieldOptionsMap(prev => ({ ...prev, [tableName]: [] }));
+    } finally {
+      setFieldsLoading(false);
+    }
+  };
 
-    fetchFields();
-  }, [tableName]);
+  fetchFields();
+}, [tableName]);
 
   // Fetch fields for join tables when they change
   useEffect(() => {
@@ -606,21 +817,22 @@ function handleFilterChange(_event) {
   };
 
   // Handle output columns selection toggle
-  const toggleOutputColumn = (tableAlias: string, column: string) => {
-    setJoinConfig(jc => {
-      const exists = jc.outputColumns.find(c => c.tableAlias === tableAlias && c.column === column);
-      if (exists) {
-        // toggle selected
-        const updated = jc.outputColumns.map(c =>
-          c.tableAlias === tableAlias && c.column === column ? { ...c, selected: !c.selected } : c
-        );
-        return { ...jc, outputColumns: updated };
-      } else {
-        // add new selected
-        return { ...jc, outputColumns: [...jc.outputColumns, { tableAlias, column, selected: true }] };
-      }
-    });
-  };
+ const toggleOutputColumn = (tableAlias: string, column: string) => {
+  setJoinConfig(jc => {
+    const exists = jc.outputColumns.find(c => c.tableAlias === tableAlias && c.column === column);
+    if (exists) {
+      // toggle selected
+      const updated = jc.outputColumns.map(c =>
+        c.tableAlias === tableAlias && c.column === column ? { ...c, selected: !c.selected } : c
+      );
+      return { ...jc, outputColumns: updated };
+    } else {
+      // add new selected
+      const newCol = { tableAlias, column, selected: true };
+      return { ...jc, outputColumns: [...jc.outputColumns, newCol] };
+    }
+  });
+};
 
   // Add all columns from a table to output columns
   const addAllOutputColumns = (tableAlias: string, tableName: string) => {
@@ -879,34 +1091,37 @@ function handleFilterChange(_event) {
 
   // Update filter helper (existing)
   const updateFilter = (updates: Partial<Filter>) => {
-    let newUpdates = { ...updates };
-    if ('type' in updates && updates.type !== 'select') {
-      newUpdates.webapi = '';
-      newUpdates.webapiType = undefined;
-      newUpdates.staticOptions = '';
+  let newUpdates: Partial<Filter> = { ...updates };
+  if ('type' in updates && updates.type !== 'select') {
+    newUpdates.webapi = '';
+    newUpdates.webapiType = undefined;
+    newUpdates.staticOptions = '';
+  }
+  if ('webapiType' in updates) {
+    if (updates.webapiType === 'static') newUpdates.webapi = '';
+    if (updates.webapiType === 'dynamic') newUpdates.staticOptions = '';
+    
+    // ✅ ADD THIS: Re-validate field when webapiType changes
+    if (filter.field) {
+      setTimeout(() => validateField('field'), 0);
     }
-    if ('webapiType' in updates) {
-      if (updates.webapiType === 'static') {
-        newUpdates.webapi = '';
-      }
-      if (updates.webapiType === 'dynamic') {
-        newUpdates.staticOptions = '';
-      }
-    }
+  }
 
-    if (isEditing && editingFilter) {
-      setEditingFilter({ ...editingFilter, ...newUpdates });
-    } else {
-      setNewFilter({ ...newFilter, ...newUpdates });
-    }
+  setLocalFilter(prev => ({ ...prev, ...newUpdates }));
 
-    // Clear errors for updated fields
-    const newErrors = { ...errors };
-    Object.keys(updates).forEach(key => {
-      delete newErrors[key as keyof ValidationErrors];
-    });
-    setErrors(newErrors);
-  };
+  if (isEditing && editingFilter) {
+    setEditingFilter && setEditingFilter({ ...editingFilter, ...newUpdates });
+  } else {
+    setNewFilter && setNewFilter({ ...(propFilter ?? newFilter ?? {}), ...newUpdates });
+  }
+
+  // Clear errors for updated fields
+  const newErrors = { ...errors };
+  Object.keys(updates).forEach(key => {
+    delete newErrors[key as keyof ValidationErrors];
+  });
+  setErrors(newErrors);
+};
 
  const handleBlur = (fieldName: string) => {
     setTouched({ ...touched, [fieldName]: true });
@@ -917,348 +1132,1521 @@ function handleFilterChange(_event) {
   const staticFieldPattern = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 const validateField = (fieldName: string) => {
-    const newErrors = { ...errors };
+  const newErrors = { ...errors };
 
-    switch (fieldName) {
-      case 'name':
-        if (!filter.name || filter.name.trim() === '') {
-          newErrors.name = 'Filter Name is required';
-        } else if (filter.name.trim().length < 2) {
-          newErrors.name = 'Filter Name must be at least 2 characters';
-        } else {
-          delete newErrors.name;
-        }
-        break;
-      case 'type':
-        if (!filter.type) {
-          newErrors.type = 'Filter Type is required';
-        } else {
-          delete newErrors.type;
-        }
-        break;
-      case 'webapiType':
-        if (filter.type === 'select' && !filter.webapiType) {
-          newErrors.webapiType = 'Web API Type is required';
-        } else {
-          delete newErrors.webapiType;
-        }
-        break;
-      case 'staticOptions':
-        if (filter.type === 'select' && filter.webapiType === 'static') {
-          if (!filter.staticOptions || filter.staticOptions.trim() === '') {
-            newErrors.staticOptions = 'Static values are required';
-          } else {
-            delete newErrors.staticOptions;
-          }
+  switch (fieldName) {
+    case 'name':
+      if (!filter.name || filter.name.trim() === '') {
+        newErrors.name = 'Filter Name is required';
+      } else if (filter.name.trim().length < 2) {
+        newErrors.name = 'Filter Name must be at least 2 characters';
+      } else {
+        delete newErrors.name;
+      }
+      break;
+    case 'type':
+      if (!filter.type) {
+        newErrors.type = 'Filter Type is required';
+      } else {
+        delete newErrors.type;
+      }
+      break;
+    case 'webapiType':
+      if (filter.type === 'select' && !filter.webapiType) {
+        newErrors.webapiType = 'Web API Type is required';
+      } else {
+        delete newErrors.webapiType;
+      }
+      break;
+    case 'staticOptions':
+      if (filter.type === 'select' && filter.webapiType === 'static') {
+        if (!filter.staticOptions || filter.staticOptions.trim() === '') {
+          newErrors.staticOptions = 'Static values are required';
         } else {
           delete newErrors.staticOptions;
         }
-        break;
-      case 'webapi':
-        if (filter.type === 'select' && filter.webapiType === 'dynamic') {
-          if (!filter.webapi || filter.webapi.trim() === '') {
-            newErrors.webapi = 'Web API is required for Dynamic type';
-          } else if (!/^https?:\/\//.test(filter.webapi.trim())) {
-            newErrors.webapi = 'Enter a valid URL (http/https)';
-          } else {
-            delete newErrors.webapi;
-          }
-        } else {
-          delete newErrors.webapi;
-        }
-        break;
-      case 'field':
-        if (!filter.field || filter.field.trim() === '') {
-          newErrors.field = 'Field/Column is required';
-        } else {
-          if (filter.webapiType === 'dynamic') {
-            if (!dynamicFieldPattern.test(filter.field.trim())) {
-              newErrors.field = 'For Dynamic type, enter as "table.column" (letters, numbers, underscore, dot)';
-            } else {
-              delete newErrors.field;
-            }
-          } else {
-            if (!staticFieldPattern.test(filter.field.trim())) {
-              newErrors.field = 'For Static type, enter only "column" (letters, numbers, underscore)';
-            } else {
-              delete newErrors.field;
-            }
-          }
-        }
-        break;
-      case 'defaultValue':
-        if (!filter.defaultValue || filter.defaultValue.toString().trim() === '') {
-          newErrors.defaultValue = 'Default Value is required';
-        } else {
-          delete newErrors.defaultValue;
-        }
-        break;
-      case 'position':
-        if (!filter.position || filter.position < 1) {
-          newErrors.position = 'Order/Position is required and must be greater than 0';
-        } else {
-          delete newErrors.position;
-        }
-        break;
-      case 'advancedConfig':
-        const advConfigStr = typeof filter.advancedConfig === 'string'
-          ? filter.advancedConfig
-          : filter.advancedConfig
-            ? JSON.stringify(filter.advancedConfig)
-            : '';
-        if (advConfigStr.trim()) {
-          try {
-            JSON.parse(advConfigStr);
-            delete newErrors.advancedConfig;
-          } catch (e) {
-            newErrors.advancedConfig = 'Invalid JSON format';
-          }
-        } else {
-          delete newErrors.advancedConfig;
-        }
-        break;
-      case 'inlineStyle':
-        if (filter.inlineStyle && filter.inlineStyle.trim()) {
-          const styles = filter.inlineStyle.split(';').filter(s => s.trim());
-          const invalidStyles = styles.filter(style => !style.includes(':'));
-          if (invalidStyles.length > 0) {
-            newErrors.inlineStyle = 'Invalid CSS format. Use "property: value;" format';
-          } else {
-            delete newErrors.inlineStyle;
-          }
-        } else {
-          delete newErrors.inlineStyle;
-        }
-        break;
-    }
-
-    setErrors(newErrors);
-  };
-
-  // Validation functions (existing)...
-
-  const validateAll = (): boolean => {
-    const newErrors: ValidationErrors = {};
-
-    if (!filter.name || filter.name.trim() === '') {
-      newErrors.name = 'Filter Name is required';
-    } else if (filter.name.trim().length < 2) {
-      newErrors.name = 'Filter Name must be at least 2 characters';
-    }
-
-    if (!filter.type) {
-      newErrors.type = 'Filter Type is required';
-    }
-
-    if (filter.type === 'select') {
-      if (!filter.webapiType) {
-        newErrors.webapiType = 'Web API Type is required';
+      } else {
+        delete newErrors.staticOptions;
       }
-      if (filter.webapiType === 'static') {
-        if (!filter.staticOptions || filter.staticOptions.trim() === '') {
-          newErrors.staticOptions = 'Static values are required';
-        }
-      }
-      if (filter.webapiType === 'dynamic') {
+      break;
+    case 'webapi':
+      if (filter.type === 'select' && filter.webapiType === 'dynamic') {
         if (!filter.webapi || filter.webapi.trim() === '') {
           newErrors.webapi = 'Web API is required for Dynamic type';
         } else if (!/^https?:\/\//.test(filter.webapi.trim())) {
           newErrors.webapi = 'Enter a valid URL (http/https)';
-        }
-      }
-    }
-
-    if (!filter.field || filter.field.trim() === '') {
-      newErrors.field = 'Field/Column is required';
-    } else {
-      if (filter.webapiType === 'dynamic') {
-        if (!dynamicFieldPattern.test(filter.field.trim())) {
-          newErrors.field = 'For Dynamic type, enter as "table.column" (letters, numbers, underscore, dot)';
+        } else {
+          delete newErrors.webapi;
         }
       } else {
-        if (!staticFieldPattern.test(filter.field.trim())) {
-          newErrors.field = 'For Static type, enter only "column" (letters, numbers, underscore)';
+        delete newErrors.webapi;
+      }
+      break;
+    case 'field':
+  if (!filter.field || filter.field.trim() === '') {
+    newErrors.field = 'Field/Column is required';
+  } else if (filter.field.trim().length < 2) {
+    newErrors.field = 'Field/Column must be at least 2 characters';
+  } else {
+    // ✅ ADD THIS VALIDATION HERE
+    const fieldValue = filter.field.trim();
+    // console.log('fieldValue-----------' + fieldValue);
+    if(filter.webapiType != 'dynamic' && filter.webapiType != 'static'){
+// console.log('fieldValue---1111-------' + fieldValue);
+if (!dynamicFieldPattern.test(fieldValue)) {
+        newErrors.field = 'Must be in format: tablename.columnname (e.g., sales_data.date)';
+      } else {
+        delete newErrors.field;
+      }
+    } else if (filter.webapiType === 'dynamic') {
+      // For dynamic type: must be tablename.columnname
+      if (!dynamicFieldPattern.test(fieldValue)) {
+        newErrors.field = 'Must be in format: tablename.columnname (e.g., sales_data.date)';
+      } else {
+        delete newErrors.field;
+      }
+    } else if (filter.webapiType === 'static') {
+      // For static type: just columnname
+      if (!staticFieldPattern.test(fieldValue)) {
+        newErrors.field = 'Must be a valid field name (letters, numbers, underscore only)';
+      } else {
+        delete newErrors.field;
+      }
+    } else {
+      delete newErrors.field;
+    }
+  }
+  break;
+
+    // NOTE: defaultValue and position validations removed here (they are now optional)
+
+    case 'advancedConfig':
+      const advConfigStr = typeof filter.advancedConfig === 'string'
+        ? filter.advancedConfig
+        : filter.advancedConfig
+          ? JSON.stringify(filter.advancedConfig)
+          : '';
+      if (advConfigStr.trim()) {
+        try {
+          JSON.parse(advConfigStr);
+          delete newErrors.advancedConfig;
+        } catch (e) {
+          newErrors.advancedConfig = 'Invalid JSON format';
         }
+      } else {
+        delete newErrors.advancedConfig;
+      }
+      break;
+    case 'inlineStyle':
+      if (filter.inlineStyle && filter.inlineStyle.trim()) {
+        const styles = filter.inlineStyle.split(';').filter(s => s.trim());
+        const invalidStyles = styles.filter(style => !style.includes(':'));
+        if (invalidStyles.length > 0) {
+          newErrors.inlineStyle = 'Invalid CSS format. Use "property: value;" format';
+        } else {
+          delete newErrors.inlineStyle;
+        }
+      } else {
+        delete newErrors.inlineStyle;
+      }
+      break;
+  }
+
+  setErrors(newErrors);
+};
+
+  // Validation functions (existing)...
+
+ const validateAll = (): boolean => {
+  const newErrors: ValidationErrors = {};
+
+  if (!filter.name || filter.name.trim() === '') {
+    newErrors.name = 'Filter Name is required';
+  } else if (filter.name.trim().length < 2) {
+    newErrors.name = 'Filter Name must be at least 2 characters';
+  }
+
+  if (!filter.type) {
+    newErrors.type = 'Filter Type is required';
+  }
+
+  if (filter.type === 'select') {
+    if (!filter.webapiType) {
+      newErrors.webapiType = 'Web API Type is required';
+    }
+    if (filter.webapiType === 'static') {
+      if (!filter.staticOptions || filter.staticOptions.trim() === '') {
+        newErrors.staticOptions = 'Static values are required';
       }
     }
-
-    if (!filter.defaultValue || filter.defaultValue.toString().trim() === '') {
-      newErrors.defaultValue = 'Default Value is required';
-    }
-
-    if (!filter.position || filter.position < 1) {
-      newErrors.position = 'Order/Position is required and must be greater than 0';
-    }
-
-    const advConfigStr = typeof filter.advancedConfig === 'string'
-      ? filter.advancedConfig
-      : filter.advancedConfig
-        ? JSON.stringify(filter.advancedConfig)
-        : '';
-
-    if (advConfigStr.trim()) {
-      try {
-        JSON.parse(advConfigStr);
-      } catch (e) {
-        newErrors.advancedConfig = 'Invalid JSON format';
+    if (filter.webapiType === 'dynamic') {
+      if (!filter.webapi || filter.webapi.trim() === '') {
+        newErrors.webapi = 'Web API is required for Dynamic type';
+      } else if (!/^https?:\/\//.test(filter.webapi.trim())) {
+        newErrors.webapi = 'Enter a valid URL (http/https)';
       }
     }
+  }
 
-    if (filter.inlineStyle && filter.inlineStyle.trim()) {
-      const styles = filter.inlineStyle.split(';').filter(s => s.trim());
-      const invalidStyles = styles.filter(style => !style.includes(':'));
-      if (invalidStyles.length > 0) {
-        newErrors.inlineStyle = 'Invalid CSS format. Use "property: value;" format';
-      }
+if (!filter.field || filter.field.trim() === '') {
+  newErrors.field = 'Field/Column is required';
+} else if (filter.field.trim().length < 2) {
+  newErrors.field = 'Field/Column must be at least 2 characters';
+} else {
+  // ✅ ADD THIS VALIDATION HERE
+  const fieldValue = filter.field.trim();
+  
+  if (filter.webapiType === 'dynamic') {
+    // For dynamic type: must be tablename.columnname
+    if (!dynamicFieldPattern.test(fieldValue)) {
+      newErrors.field = 'Must be in format: tablename.columnname (e.g., sales_data.date)';
     }
+  } else if (filter.webapiType === 'static') {
+    // For static type: just columnname
+    if (!staticFieldPattern.test(fieldValue)) {
+      newErrors.field = 'Must be a valid field name (letters, numbers, underscore only)';
+    }
+  }
+}
 
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
+  // defaultValue & position are optional now — do not add validation errors here
+
+  const advConfigStr = typeof filter.advancedConfig === 'string'
+    ? filter.advancedConfig
+    : filter.advancedConfig
+      ? JSON.stringify(filter.advancedConfig)
+      : '';
+
+  if (advConfigStr.trim()) {
+    try {
+      JSON.parse(advConfigStr);
+    } catch (e) {
+      newErrors.advancedConfig = 'Invalid JSON format';
+    }
+  }
+
+  if (filter.inlineStyle && filter.inlineStyle.trim()) {
+    const styles = filter.inlineStyle.split(';').filter(s => s.trim());
+    const invalidStyles = styles.filter(style => !style.includes(':'));
+    if (invalidStyles.length > 0) {
+      newErrors.inlineStyle = 'Invalid CSS format. Use "property: value;" format';
+    }
+  }
+
+  setErrors(newErrors);
+  return Object.keys(newErrors).length === 0;
+};
   // Validate all fields (existing)...
 
   // Handle submit: combine all tab data and send to API
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
+  e.preventDefault();
+  setIsSubmitting(true);
 
-    setTouched({
-      name: true,
-      type: true,
-      field: true,
-      defaultValue: true,
-      position: true,
-      advancedConfig: true,
-      webapi: true,
-      inlineStyle: true,
-      webapiType: true,
-      staticOptions: true,
-    });
+  setTouched({
+    name: true,
+    type: true,
+    field: true,
+    defaultValue: true,
+    position: true,
+    advancedConfig: true,
+    webapi: true,
+    inlineStyle: true,
+    webapiType: true,
+    staticOptions: true,
+    queryPreview: true,
+    filterApply: true,
+  });
 
-    if (!validateAll()) {
-      setIsSubmitting(false);
-      return;
-    }
+  if (!validateAll()) {
+    setIsSubmitting(false);
+    return;
+  }
 
-    // Validate Query Builder tab name if active
-    if (activeTab === 'queryBuilder' && !name.trim()) {
-      setError('Filter name is required in Query Builder tab');
-      setIsSubmitting(false);
-      return;
-    }
+  // Validate Query Builder tab name if active
+  if (activeTab === 'queryBuilder' && !name.trim()) {
+    setError('Filter name is required in Query Builder tab');
+    setIsSubmitting(false);
+    return;
+  }
 
-    // Prepare payload combining all tabs data
-    const payload = {
-      name: filter.name || name,
-      type: filter.type,
-      field: filter.field,
-      defaultValue: filter.defaultValue,
-      position: filter.position,
-      description: filter.description || '',
-      placeholder: filter.placeholder || '',
-      isActive: filter.isActive ?? true,
-      required: filter.required ?? false,
-      visible: filter.visible ?? true,
-      multiSelect: filter.multiSelect ?? false,
-      allowCustom: filter.allowCustom ?? false,
-      tags: filter.tags || [],
-      options: filter.options || [],
-      min: filter.min || null,
-      max: filter.max || null,
-      pattern: filter.pattern || '',
-      webapiType: filter.webapiType || '',
-      staticOptions: filter.staticOptions || '',
-      webapi: filter.webapi || '',
-      advancedConfig: typeof filter.advancedConfig === 'string'
-        ? filter.advancedConfig
-        : filter.advancedConfig
-          ? JSON.stringify(filter.advancedConfig)
-          : '',
-      cssClass: filter.cssClass || '',
-      inlineStyle: filter.inlineStyle || '',
-      onClickHandler: filter.onClickHandler || '',
-      onBlurHandler: filter.onBlurHandler || '',
-      onChangeHandler: filter.onChangeHandler || '',
-      onFocusHandler: filter.onFocusHandler || '',
-      onKeyDownHandler: filter.onKeyDownHandler || '',
-      onKeyUpHandler: filter.onKeyUpHandler || '',
-      config: filter.config || {},
+  // ✅ Prepare payload with proper field mapping
+  const payload = {
+    name: filter.name || name,
+    type: filter.type,
+    field: filter.field,
+    defaultValue: filter.defaultValue || '',
+    position: filter.position || 1,
+    description: filter.description || '',
+    placeholder: filter.placeholder || '',
+    isActive: filter.isActive ?? true,
+    required: filter.required ?? false,
+    visible: filter.visible ?? true,
+    multiSelect: filter.multiSelect ?? false,
+    allowCustom: filter.allowCustom ?? false,
+    queryPreview: filter.queryPreview ?? false,
+    filterApply: filter.filterApply || 'Live',
+    tags: JSON.stringify(filter.tags || []),
+    options: JSON.stringify(filter.options || []),
+    min: filter.min || null,
+    max: filter.max || null,
+    pattern: filter.pattern || '',
+    webapiType: filter.webapiType || '',
+    staticOptions: filter.staticOptions || '', // ✅ Fixed: use staticOptions
+    webapi: filter.webapi || '',
+    advancedConfig: typeof filter.advancedConfig === 'string'
+      ? filter.advancedConfig
+      : filter.advancedConfig
+        ? JSON.stringify(filter.advancedConfig)
+        : '',
+    cssClass: filter.cssClass || '',
+    cssCode: (filter as any).cssCode || '',
+    inlineStyle: filter.inlineStyle || '',
+    
+    // ✅ Event handlers
+    onClickHandler: filter.onClickHandler || '',
+    onBlurHandler: filter.onBlurHandler || '',
+    onChangeHandler: filter.onChangeHandler || '',
+    onFocusHandler: filter.onFocusHandler || '',
+    onKeyDownHandler: filter.onKeyDownHandler || '',
+    onKeyUpHandler: filter.onKeyUpHandler || '',
+    
+    // ✅ Event handler params and responses
+    onClickHandlerParams: (filter as any).onClickHandlerParams || '',
+    onClickHandlerResponse: (filter as any).onClickHandlerResponse || '',
+    onBlurHandlerParams: (filter as any).onBlurHandlerParams || '',
+    onBlurHandlerResponse: (filter as any).onBlurHandlerResponse || '',
+    onChangeHandlerParams: (filter as any).onChangeHandlerParams || '',
+    onChangeHandlerResponse: (filter as any).onChangeHandlerResponse || '',
+    onFocusHandlerParams: (filter as any).onFocusHandlerParams || '',
+    onFocusHandlerResponse: (filter as any).onFocusHandlerResponse || '',
+    onKeyDownHandlerParams: (filter as any).onKeyDownHandlerParams || '',
+    onKeyDownHandlerResponse: (filter as any).onKeyDownHandlerResponse || '',
+    onKeyUpHandlerParams: (filter as any).onKeyUpHandlerParams || '',
+    onKeyUpHandlerResponse: (filter as any).onKeyUpHandlerResponse || '',
+    
+    config: JSON.stringify(filter.config || {}),
 
-      // Query Builder tab data
-      queryBuilder: {
-        name,
-        statement,
-        columns,
-        tableName,
-        whereConditions,
-        groupBy,
-        having,
-        orderBy,
-        limit,
-        windowFunctionConfigs,
-        joinConfig,
-        queryPreview: buildQuery(),
-      },
+    // ✅ Query Builder tab data
+    queryBuilder: JSON.stringify({
+      name,
+      statement,
+      columns,
+      tableName,
+      whereConditions,
+      groupBy,
+      having,
+      orderBy,
+      limit,
+      windowFunctionConfigs,
+      joinConfig,
+      queryPreview: buildQuery(),
+    }),
 
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      ...(isEditing && filter.id ? { id: filter.id } : {}),
-    };
+    createdAt: isEditing ? (filter as any).createdAt : new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...(isEditing && filter.id ? { id: filter.id } : {}),
+  };
 
-    try {
-      const response = await fetch('https://intelligentsalesman.com/ism1/API/api.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+  console.log('Payload being sent:', payload);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        alert('Failed to save filter! ' + errorText);
+  try {
+    if (onSave) {
+      const result = await onSave(payload, isEditing);
+      if (result) {
         setIsSubmitting(false);
         return;
       }
-
-      await response.json();
-
-      alert(isEditing ? 'Filter updated successfully!' : 'Filter created successfully!');
-      if (isEditing) {
-        setEditingFilter(null);
-      } else {
-        resetNewFilter();
-      }
-
-      onSubmit?.();
-      onClose();
-    } catch (error) {
-      alert('An error occurred: ' + error);
-    } finally {
-      setIsSubmitting(false);
     }
-  };
+
+    const endpoint = isEditing ? 'api.php' : 'api.php';
+    const response = await fetch(`https://intelligentsalesman.com/ism1/API/${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    console.log('Response:', response);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      alert('Failed to save filter! ' + errorText);
+      setIsSubmitting(false);
+      return;
+    }
+
+    const result = await response.json();
+    console.log('Result:', result);
+
+    alert(isEditing ? 'Filter updated successfully!' : 'Filter created successfully!');
+    
+    if (isEditing) {
+      setEditingFilter && setEditingFilter(null);
+    } else {
+      resetNewFilter && resetNewFilter();
+    }
+
+    fetchFilters && fetchFilters();
+    onCancel && onCancel();
+  } catch (error) {
+    console.error('Error:', error);
+    alert('An error occurred: ' + error);
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   // Updated getFieldClassName to be theme-aware (existing)...
- const getFieldClassName = (fieldName: string, baseClassName: string) => {
-    const hasError = errors[fieldName as keyof ValidationErrors] && touched[fieldName];
-    const base = `${baseClassName} rounded-md px-3 py-2 focus:outline-none focus:ring-2`;
-    const errorClasses = 'border-red-500 focus:ring-red-400 dark:border-red-700 dark:focus:ring-red-600';
-    const lightClasses = 'border-gray-300 focus:ring-blue-400 bg-white text-black';
-    const darkClasses = 'border-gray-600 focus:ring-blue-600 bg-gray-800 text-white';
+ // Replace existing getFieldClassName with this (slightly narrower on wide screens)
+const getFieldClassName = (fieldName: string, baseClassName: string) => {
+  const hasError = errors[fieldName as keyof ValidationErrors] && touched[fieldName];
+  // slightly reduced width on larger screens to avoid overflow
+  const base = `${baseClassName} rounded-md px-3 py-2 focus:outline-none focus:ring-2`;
+  const errorClasses = 'border-red-500 focus:ring-red-400 dark:border-red-700 dark:focus:ring-red-600';
+  const lightClasses = 'border-gray-300 focus:ring-blue-400 bg-white text-black';
+  const darkClasses = 'border-gray-600 focus:ring-blue-600 bg-gray-800 text-white';
 
-    return `${base} ${hasError ? errorClasses : theme === 'dark' ? darkClasses : lightClasses}`;
-  };
+  // baseClassName typically contains width like 'w-full'. Use md constraint to slightly shrink on larger screens
+  // result: full width on small screens, 92% on md+ screens
+  return `${base} ${hasError ? errorClasses : theme === 'dark' ? darkClasses : lightClasses} w-full md:w-[92%]`;
+};
   useEffect(() => {
     if (!isEditing && !filter.type) {
       updateFilter({ type: 'select' });
     }
   }, [isEditing, filter.type]);
 
-  if (!isOpen) return null;
+  // If parentMode is 'modal', render directly without modal wrapper
+  if (parentMode === 'modal') {
+    return (
+      <div className="p-6 space-y-6">
+        {/* Tabs */}
+        <div className="border-b border-gray-300 dark:border-gray-700">
+          <nav className="flex space-x-6" aria-label="Tabs">
+            {['basic', 'styling', 'events', 'validation', 'options', 'queryBuilder'].map((tab) => (
+              <button
+                key={tab}
+                className={`py-3 px-4 -mb-px border-b-2 font-medium ${
+                  activeTab === tab
+                    ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
+                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+                onClick={() => setActiveTab(tab as any)}
+                type="button"
+              >
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </button>
+            ))}
+          </nav>
+        </div>
 
+        {/* Form */}
+    
+          <form className="space-y-6 max-h-[70vh] overflow-y-auto" onSubmit={handleSubmit} noValidate>
+          {/* BASIC TAB - new layout: two-columns and reorder of fields */}
+{activeTab === 'basic' && (
+  <>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Filter Name */}
+      <div>
+        <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">
+          Filter Name <span className="text-red-500">*</span>
+        </label>
+        <input
+          type="text"
+          value={filter.name || ''}
+          onChange={(e) => updateFilter({ name: e.target.value })}
+          onBlur={() => handleBlur('name')}
+          placeholder="Enter filter name"
+          className={getFieldClassName('name', 'w-full border')}
+          required
+        />
+        {errors.name && touched.name && <div className="text-red-500 text-sm mt-1">{errors.name}</div>}
+      </div>
+
+      {/* Field/Column (same row as name) */}
+      <div>
+        <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">
+          Field/Column <span className="text-red-500">*</span>
+        </label>
+        <input
+          type="text"
+          value={filter.field || ''}
+          onChange={(e) => {
+  const val = e.target.value;
+  updateFilter({ field: val });
+  validateField('field'); // live validation
+}}
+onBlur={() => handleBlur('field')}
+
+          placeholder={filter.webapiType === 'dynamic' ? 'E.g. table.field' : 'E.g. fieldName'}
+          className={getFieldClassName('field', 'w-full border')}
+          required
+        />
+        {errors.field && touched.field && <div className="text-red-500 text-sm mt-1">{errors.field}</div>}
+        <div className="text-gray-500 dark:text-gray-400 text-xs mt-1">
+          {filter.webapiType === 'dynamic'
+            ? 'Enter as "tableName.fieldName"'
+            : 'Enter only "fieldName"'}
+        </div>
+      </div>
+    </div>
+
+    {/* Filter Type and Web API Type same row */}
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+      <div>
+        <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">
+          Filter Type <span className="text-red-500">*</span>
+        </label>
+        <select
+          value={filter.type || 'select'}
+          onChange={(e) => updateFilter({ type: e.target.value as Filter['type'] })}
+          onBlur={() => handleBlur('type')}
+          className={getFieldClassName('type', 'w-full border')}
+          required
+        >
+          <option value="text">Text</option>
+          <option value="number">Number</option>
+          <option value="date">Date</option>
+          <option value="select">Select</option>
+          {/* Removed: QueryBuilder, Lookup, Component Style */}
+        </select>
+        {errors.type && touched.type && <div className="text-red-500 text-sm mt-1">{errors.type}</div>}
+      </div>
+
+      <div>
+        <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">
+          Web API Type {filter.type === 'select' ? <span className="text-red-500">*</span> : null}
+        </label>
+        <select
+          value={filter.webapiType || ''}
+          onChange={(e) =>
+            updateFilter({ webapiType: e.target.value as 'static' | 'dynamic', webapi: '', staticOptions: '' })
+          }
+          className={getFieldClassName('webapiType', 'w-full border')}
+          required={filter.type === 'select'}
+        >
+          <option value="">Select Type</option>
+          <option value="static">Static</option>
+          <option value="dynamic">Dynamic</option>
+        </select>
+        {errors.webapiType && touched.webapiType && (
+          <div className="text-red-500 text-sm mt-1">{errors.webapiType}</div>
+        )}
+      </div>
+    </div>
+
+    {/* Static Values or Web API occupy full row */}
+    {filter.type === 'select' && filter.webapiType === 'static' && (
+      <div className="mt-4">
+        <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">
+          Static Values
+        </label>
+        <input
+          type="text"
+          value={filter.staticOptions || ''}
+          onChange={(e) => updateFilter({ staticOptions: e.target.value })}
+          onBlur={() => handleBlur('staticOptions')}
+          placeholder="e.g. Active,Inactive,Pending"
+          className={getFieldClassName('staticOptions', 'w-full border')}
+        />
+        {errors.staticOptions && touched.staticOptions && (
+          <div className="text-red-500 text-sm mt-1">{errors.staticOptions}</div>
+        )}
+        <div className="text-gray-500 dark:text-gray-400 text-xs mt-1">
+          Enter comma-separated values (e.g. Active,Inactive,Pending)
+        </div>
+      </div>
+    )}
+
+    {filter.type === 'select' && filter.webapiType === 'dynamic' && (
+      <div className="mt-4">
+        <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">
+          Web API
+        </label>
+        <input
+          type="text"
+          value={filter.webapi || ''}
+          onChange={(e) => updateFilter({ webapi: e.target.value })}
+          onBlur={() => handleBlur('webapi')}
+          placeholder="https://example.com/api/endpoint"
+          className={getFieldClassName('webapi', 'w-full border')}
+        />
+        {errors.webapi && touched.webapi && <div className="text-red-500 text-sm mt-1">{errors.webapi}</div>}
+        <div className="text-gray-500 dark:text-gray-400 text-xs mt-1">
+          Enter API endpoint to fetch options dynamically.
+        </div>
+      </div>
+    )}
+
+    {/* Order/Position (optional now) */}
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+      <div>
+        <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">Order/Position:</label>
+        <input
+          type="number"
+          min={1}
+          value={filter.position ?? ''}
+          onChange={(e) => {
+            const val = e.target.value ? parseInt(e.target.value, 10) : undefined;
+            updateFilter({ position: val });
+          }}
+          placeholder="Order of appearance (optional)"
+          className={getFieldClassName('position', 'w-full border')}
+        />
+        {errors.position && touched.position && <div className="text-red-500 text-sm mt-1">{errors.position}</div>}
+      </div>
+
+      <div>
+        <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">Placeholder:</label>
+        <input
+          type="text"
+          value={filter.placeholder || ''}
+          onChange={(e) => updateFilter({ placeholder: e.target.value })}
+          placeholder="Placeholder text"
+          className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:text-white"
+        />
+      </div>
+
+      <div>
+        <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">Description:</label>
+        <input
+          type="text"
+          value={filter.description || ''}
+          onChange={(e) => updateFilter({ description: e.target.value })}
+          placeholder="Short description"
+          className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:text-white"
+        />
+      </div>
+      {/* QueryPreview checkbox and FilterApply dropdown (under Description) */}
+    <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="flex items-center space-x-3">
+        <input
+          id="queryPreviewCheckbox"
+          type="checkbox"
+          checked={filter.queryPreview ?? false}
+          onChange={(e) => updateFilter({ queryPreview: e.target.checked })}
+          className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500"
+        />
+        <label htmlFor="queryPreviewCheckbox" className="font-medium text-gray-900 dark:text-gray-100 select-none">
+          QueryPreview
+        </label>
+      </div>
+
+      <div>
+        <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">FilterApply:</label>
+        <select
+          value={filter.filterApply || 'Live'}
+          onChange={(e) => updateFilter({ filterApply: e.target.value as 'Live' | 'Manual' })}
+          className={getFieldClassName('filterApply', 'w-full border')}
+        >
+          <option value="Live">Live</option>
+          <option value="Manual">Manual</option>
+        </select>
+        <div className="text-gray-500 dark:text-gray-400 text-xs mt-1">
+          Live: apply immediately as user changes — Manual: requires explicit Apply
+        </div>
+      </div>
+    </div>
+    </div>
+  </>
+)}
+
+         {activeTab === 'styling' && (
+  <>
+    <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">🎨 Styling & Appearance</h3>
+
+    <div className="form-group mb-4">
+      <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">CSS Class:</label>
+      <input
+        type="text"
+        value={filter.cssClass || ''}
+        onChange={(e) => {
+          updateFilter({ cssClass: e.target.value });
+          // if user clears classes, clear cssCode too
+          if (!e.target.value) updateFilter({ cssCode: '' });
+        }}
+        placeholder="e.g. my-custom-class btn-primary"
+        className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:text-white"
+      />
+      <div className="text-gray-500 dark:text-gray-400 text-xs mt-1">
+        Add custom CSS classes (space-separated)
+      </div>
+    </div>
+
+    {/* CSS Code textarea appears when a class name is entered */}
+    {filter.cssClass && filter.cssClass.trim() !== '' && (
+      <div className="form-group mb-4">
+        <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">
+          CSS for "{filter.cssClass}"
+        </label>
+        <textarea
+          value={filter.cssCode || ''}
+          onChange={(e) => {
+            updateFilter({ cssCode: e.target.value });
+            // immediate validation
+            const err = validateCssCode(e.target.value);
+            setCssCodeError(err);
+          }}
+          placeholder={`.${(filter.cssClass || '').split(' ')[0]} { /* css here */ }`}
+          className={`w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 font-mono text-xs focus:outline-none focus:ring-2 ${cssCodeError ? 'border-red-500 focus:ring-red-400' : 'focus:ring-blue-400'}`}
+          rows={8}
+        />
+        {cssCodeError ? (
+          <div className="text-red-500 text-sm mt-1">{cssCodeError}</div>
+        ) : (
+          <div className="text-gray-500 dark:text-gray-400 text-xs mt-1">Write CSS for the provided class. Basic syntax is validated live.</div>
+        )}
+      </div>
+    )}
+  </>
+)}
+
+          {activeTab === 'events' && (
+  <>
+    <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">⚡ Event Handlers</h3>
+
+    <div className="grid grid-cols-1 gap-4">
+      {[
+        { label: 'onClick Handler', key: 'onClickHandler' },
+        { label: 'onBlur Handler', key: 'onBlurHandler' },
+        { label: 'onChange Handler', key: 'onChangeHandler' },
+        { label: 'onFocus Handler', key: 'onFocusHandler' },
+        { label: 'onKeyDown Handler', key: 'onKeyDownHandler' },
+        { label: 'onKeyUp Handler', key: 'onKeyUpHandler' },
+      ].map(({ label, key }) => (
+        <div key={key} className="border rounded-md p-3">
+          <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">{label}:</label>
+
+          {/* function name */}
+          <input
+            type="text"
+            value={(filter as any)[key] || ''}
+            onChange={(e) => updateFilter({ [key]: e.target.value })}
+            placeholder={`e.g. handle${label.replace(' Handler', '')}`}
+            className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 mb-2 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:text-white"
+          />
+
+          {/* params */}
+          <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Parameters (comma-separated or JSON):</label>
+          <input
+            type="text"
+            value={(filter as any)[`${key}Params`] || ''}
+            onChange={(e) => updateFilter({ [`${key}Params`]: e.target.value })}
+            placeholder={`e.g. id, 'abc', 123  or  {"id":123,"flag":true}`}
+            className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 mb-2 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:text-white"
+          />
+
+          {/* response type */}
+          <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Expected Response:</label>
+          <select
+            value={(filter as any)[`${key}Response`] || ''}
+            onChange={(e) => updateFilter({ [`${key}Response`]: e.target.value })}
+            className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:text-white"
+          >
+            <option value="">(none)</option>
+            <option value="void">void</option>
+            <option value="boolean">boolean</option>
+            <option value="string">string</option>
+            <option value="object">object</option>
+            <option value="promise">Promise</option>
+          </select>
+        </div>
+      ))}
+    </div>
+
+    <div className="text-gray-500 dark:text-gray-400 text-xs mt-2">
+      Enter function name, params and expected response type. Your application should map these to actual functions in scope at runtime.
+    </div>
+  </>
+)}
+
+          {activeTab === 'validation' && (
+            <>
+              <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">Validation Rules</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-gray-900 dark:text-gray-100">Min (for number/text):</label>
+                  <input
+                    type="number"
+                    value={filter.min || ''}
+                    onChange={(e) => updateFilter({ min: e.target.value })}
+                    placeholder="Min value/length"
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-gray-900 dark:text-gray-100">Max (for number/text):</label>
+                  <input
+                    type="number"
+                    value={filter.max || ''}
+                    onChange={(e) => updateFilter({ max: e.target.value })}
+                    placeholder="Max value/length"
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-gray-900 dark:text-gray-100">Regex Pattern:</label>
+                  <input
+                    type="text"
+                    value={filter.pattern || ''}
+                    onChange={(e) => updateFilter({ pattern: e.target.value })}
+                    placeholder="e.g. ^[A-Za-z0-9]+$"
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="form-group mt-4">
+                <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">Advanced Config (JSON):</label>
+                <textarea
+                  value={
+                    typeof filter.advancedConfig === 'string'
+                      ? filter.advancedConfig
+                      : filter.advancedConfig
+                        ? JSON.stringify(filter.advancedConfig, null, 2)
+                        : ''
+                  }
+                  onChange={(e) => updateFilter({ advancedConfig: e.target.value })}
+                  onBlur={() => handleBlur('advancedConfig')}
+                  placeholder='{"key":"value"}'
+                  className={getFieldClassName('advancedConfig', 'w-full border font-mono text-xs')}
+                  rows={3}
+                />
+                {errors.advancedConfig && touched.advancedConfig && (
+                  <div className="text-red-500 text-sm mt-1">{errors.advancedConfig}</div>
+                )}
+                <div className="text-gray-500 dark:text-gray-400 text-xs mt-1">
+                  Optional: Enter valid JSON for additional configuration
+                </div>
+              </div>
+            </>
+          )}
+
+          {activeTab === 'options' && (
+  <>
+    {(filter.type === 'select' || filter.type === 'lookup') && (
+      <>
+        <div className="form-group">
+          <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">Options (comma separated):</label>
+          <input
+            type="text"
+            value={filter.options?.join(', ') || ''}
+            onChange={(e) => {
+              const options = e.target.value.split(',').map(opt => opt.trim()).filter(Boolean);
+              updateFilter({ options });
+            }}
+            placeholder="e.g. Active,Inactive,Pending"
+            className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:text-white"
+          />
+        </div>
+        <div className="form-group flex items-center space-x-6">
+          <label className="flex items-center space-x-2 text-gray-900 dark:text-gray-100">
+            <input
+              type="checkbox"
+              checked={filter.allowCustom ?? false}
+              onChange={(e) => updateFilter({ allowCustom: e.target.checked })}
+              className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500"
+            />
+            <span className="font-medium select-none cursor-pointer">Allow custom values</span>
+          </label>
+        </div>
+      </>
+    )}
+
+    <div className="form-group">
+      <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">Tags (comma separated):</label>
+      <input
+        type="text"
+        value={filter.tags?.join(', ') || ''}
+        onChange={(e) => {
+          const tags = e.target.value.split(',').map(tag => tag.trim()).filter(Boolean);
+          updateFilter({ tags });
+        }}
+        placeholder="Enter tags"
+        // reduced width
+        style={{ maxWidth: 420 }}
+        className="w-full md:w-auto border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:text-white"
+      />
+    </div>
+
+    {/* vertical checkboxes with short descriptions in brackets */}
+    <div className="space-y-3 mt-3">
+      <label className="flex items-start space-x-3">
+        <input
+          type="checkbox"
+          checked={filter.isActive ?? true}
+          onChange={(e) => updateFilter({ isActive: e.target.checked })}
+          className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500 mt-1"
+        />
+        <div>
+          <span className="font-medium">Active</span>
+          <span className="text-gray-500 ml-2"> (Filter active by default)</span>
+        </div>
+      </label>
+
+      <label className="flex items-start space-x-3">
+        <input
+          type="checkbox"
+          checked={filter.multiSelect ?? false}
+          onChange={(e) => updateFilter({ multiSelect: e.target.checked })}
+          className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500 mt-1"
+        />
+        <div>
+          <span className="font-medium">Multiselect</span>
+          <span className="text-gray-500 ml-2"> (Allow selecting multiple values)</span>
+        </div>
+      </label>
+
+      <label className="flex items-start space-x-3">
+        <input
+          type="checkbox"
+          checked={filter.required ?? false}
+          onChange={(e) => updateFilter({ required: e.target.checked })}
+          className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500 mt-1"
+        />
+        <div>
+          <span className="font-medium">Required</span>
+          <span className="text-gray-500 ml-2"> (Field must have a value to submit)</span>
+        </div>
+      </label>
+
+      <label className="flex items-start space-x-3">
+        <input
+          type="checkbox"
+          checked={filter.visible ?? true}
+          onChange={(e) => updateFilter({ visible: e.target.checked })}
+          className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500 mt-1"
+        />
+        <div>
+          <span className="font-medium">Visible</span>
+          <span className="text-gray-500 ml-2"> (Show filter in UI)</span>
+        </div>
+      </label>
+    </div>
+  </>
+)}
+
+          {activeTab === 'queryBuilder' && (
+            <>
+              {/* New Query Builder Tab Content */}
+              <Box sx={{ p: 2, maxHeight: '60vh', overflowY: 'auto' }}>
+                {/* Error message */}
+                {error && (
+                  <Typography color="error" sx={{ mb: 2 }}>
+                    {error}
+                  </Typography>
+                )}
+
+               
+
+                <FormControl fullWidth sx={{ mb: 2 }}>
+                  <InputLabel>SQL Statement</InputLabel>
+                  <Select value={statement} label="SQL Statement" onChange={(e) => setStatement(e.target.value)}>
+                    {sqlStatements.map(s => (
+                      <MenuItem key={s} value={s}>{s}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                <TextField
+                  label="Columns (comma separated or *)"
+                  fullWidth
+                  value={columns}
+                  onChange={(e) => setColumns(e.target.value)}
+                  sx={{ mb: 2 }}
+                  placeholder="*, age, salary"
+                  disabled={joinConfig.primaryTable && joinConfig.secondaryTable} // disable if join active
+                  helperText={joinConfig.primaryTable && joinConfig.secondaryTable ? 'Disabled when join is configured. Use Output Columns below.' : ''}
+                />
+
+                {/* Table Name with Autocomplete */}
+                <Autocomplete
+                  freeSolo
+                  options={tableOptions}
+                  loading={tableLoading}
+                  value={tableName}
+                  onChange={(_event, newValue) => {
+                    setTableName(newValue || '');
+                  }}
+                  onInputChange={handleTableInputChange}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Table Name"
+                      fullWidth
+                      sx={{ mb: 2 }}
+                      placeholder="Select or type to search tables"
+                      InputProps={{
+                        ...params.InputProps,
+                        endAdornment: (
+                          <>
+                            {tableLoading ? <CircularProgress color="inherit" size={20} /> : null}
+                            {params.InputProps.endAdornment}
+                          </>
+                        ),
+                      }}
+                      disabled={joinConfig.primaryTable && joinConfig.secondaryTable} // disable if join active
+                      helperText={joinConfig.primaryTable && joinConfig.secondaryTable ? 'Disabled when join is configured.' : ''}
+                    />
+                  )}
+                  renderOption={(props, option) => {
+                    const { key, ...otherProps } = props;
+                    return (
+                      <li key={key} {...otherProps}>
+                        {option}
+                      </li>
+                    );
+                  }}
+                />
+
+                {/* Join Configuration Section */}
+                <Accordion defaultExpanded>
+                  <AccordionSummary expandIcon={<ExpandMore />}>
+                    <Typography variant="h6">Join Configuration</Typography>
+                  </AccordionSummary>
+                  <AccordionDetails>
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 2 }}>
+              <FormControl sx={{ minWidth: 140 }}>
+                <InputLabel>Join Type</InputLabel>
+                <Select
+                  value={joinConfig.joinType}
+                  label="Join Type"
+                  onChange={e => updateJoinConfig('joinType', e.target.value)}
+                >
+                  {['INNER', 'LEFT', 'RIGHT', 'FULL OUTER', 'CROSS', 'SELF'].map(type => (
+                    <MenuItem key={type} value={type}>{type}</MenuItem>
+                  ))}
+                </Select>
+                <Typography variant="caption" color="textSecondary" sx={{ mt: 0.5 }}>
+                  Select the SQL Join type to combine tables.
+                </Typography>
+              </FormControl>
+
+              <FormControl sx={{ minWidth: 140 }}>
+                <InputLabel>Primary Table</InputLabel>
+                <Select
+                  value={joinConfig.primaryTable}
+                  label="Primary Table"
+                  onChange={e => updateJoinConfig('primaryTable', e.target.value)}
+                >
+                  {tableOptions.map(t => (
+                    <MenuItem key={t} value={t}>{t}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <FormControl sx={{ minWidth: 100 }}>
+                <InputLabel>Primary Alias</InputLabel>
+                <TextField
+                  value={joinConfig.primaryAlias}
+                  onChange={e => updateJoinConfig('primaryAlias', e.target.value)}
+                  placeholder="Alias"
+                  size="small"
+                />
+              </FormControl>
+
+              <FormControl sx={{ minWidth: 140 }}>
+                <InputLabel>Primary Column</InputLabel>
+                <Select
+                  value={joinConfig.primaryColumn}
+                  label="Primary Column"
+                  onChange={e => updateJoinConfig('primaryColumn', e.target.value)}
+                  disabled={!joinConfig.primaryTable}
+                >
+                  {(fieldOptionsMap[joinConfig.primaryTable] || []).map(f => (
+                    <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
+
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 2 }}>
+              <FormControl sx={{ minWidth: 140 }}>
+                <InputLabel>Secondary Table</InputLabel>
+                <Select
+                  value={joinConfig.secondaryTable}
+                  label="Secondary Table"
+                  onChange={e => updateJoinConfig('secondaryTable', e.target.value)}
+                >
+                  {tableOptions.map(t => (
+                    <MenuItem key={t} value={t}>{t}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <FormControl sx={{ minWidth: 100 }}>
+                <InputLabel>Secondary Alias</InputLabel>
+                <TextField
+                  value={joinConfig.secondaryAlias}
+                  onChange={e => updateJoinConfig('secondaryAlias', e.target.value)}
+                  placeholder="Alias"
+                  size="small"
+                />
+              </FormControl>
+
+              <FormControl sx={{ minWidth: 140 }}>
+                <InputLabel>Secondary Column</InputLabel>
+                <Select
+                  value={joinConfig.secondaryColumn}
+                  label="Secondary Column"
+                  onChange={e => updateJoinConfig('secondaryColumn', e.target.value)}
+                  disabled={!joinConfig.secondaryTable}
+                >
+                  {(fieldOptionsMap[joinConfig.secondaryTable] || []).map(f => (
+                    <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
+
+            <Box sx={{ mb: 2 }}>
+              <TextField
+                label="Join Condition (editable)"
+                fullWidth
+                value={joinConfig.joinCondition}
+                onChange={e => updateJoinConfig('joinCondition', e.target.value)}
+                helperText="Auto-generated. You may override for complex joins."
+              />
+            </Box>
+
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="subtitle1" gutterBottom>Alias Tables (Optional)</Typography>
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                <TextField
+                  label="Primary Alias"
+                  value={joinConfig.primaryAlias}
+                  onChange={e => updateJoinConfig('primaryAlias', e.target.value)}
+                  size="small"
+                  sx={{ minWidth: 140 }}
+                />
+                <TextField
+                  label="Secondary Alias"
+                  value={joinConfig.secondaryAlias}
+                  onChange={e => updateJoinConfig('secondaryAlias', e.target.value)}
+                  size="small"
+                  sx={{ minWidth: 140 }}
+                />
+              </Box>
+              <Typography variant="caption" color="textSecondary" sx={{ mt: 0.5 }}>
+                Use aliases for shorter references in custom SQL.
+              </Typography>
+            </Box>
+
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="subtitle1" gutterBottom>Output Columns</Typography>
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 1 }}>
+                <Button size="small" onClick={() => addAllOutputColumns(joinConfig.primaryAlias, joinConfig.primaryTable)}>+ Add All Primary</Button>
+                <Button size="small" onClick={() => clearAllOutputColumns(joinConfig.primaryAlias)}>- Clear Primary</Button>
+                <Button size="small" onClick={() => addAllOutputColumns(joinConfig.secondaryAlias, joinConfig.secondaryTable)}>+ Add All Secondary</Button>
+                <Button size="small" onClick={() => clearAllOutputColumns(joinConfig.secondaryAlias)}>- Clear Secondary</Button>
+              </Box>
+              <Box sx={{ maxHeight: 150, overflowY: 'auto', border: '1px solid #ddd', p: 1, borderRadius: 1 }}>
+                {(fieldOptionsMap[joinConfig.primaryTable] || []).map(col => {
+                  const selected = joinConfig.outputColumns.find(c => c.tableAlias === joinConfig.primaryAlias && c.column === col.value)?.selected || false;
+                  return (
+                    <FormControlLabel
+                      key={`primary-${col.value}`}
+                      control={
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => toggleOutputColumn(joinConfig.primaryAlias, col.value)}
+                        />
+                      }
+                      label={`${joinConfig.primaryAlias}.${col.label}`}
+                    />
+                  );
+                })}
+                {(fieldOptionsMap[joinConfig.secondaryTable] || []).map(col => {
+                  const selected = joinConfig.outputColumns.find(c => c.tableAlias === joinConfig.secondaryAlias && c.column === col.value)?.selected || false;
+                  return (
+                    <FormControlLabel
+                      key={`secondary-${col.value}`}
+                      control={
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => toggleOutputColumn(joinConfig.secondaryAlias, col.value)}
+                        />
+                      }
+                      label={`${joinConfig.secondaryAlias}.${col.label}`}
+                    />
+                  );
+                })}
+              </Box>
+              <Typography variant="caption" color="textSecondary" sx={{ mt: 0.5 }}>
+                Select which columns to include in the final result.
+              </Typography>
+            </Box>
+          </AccordionDetails>
+                </Accordion>
+
+                {/* Where Conditions */}
+                <Accordion defaultExpanded>
+                  <AccordionSummary expandIcon={<ExpandMore />}>
+                    <Typography variant="h6">Where Conditions</Typography>
+                  </AccordionSummary>
+                  <AccordionDetails>
+            {whereConditions.map((cond) => (
+              <Box key={cond.id} sx={{ display: 'flex', flexDirection: 'column', mb: 2, border: '1px solid #eee', borderRadius: 1, p: 1 }}>
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                  <FormControl sx={{ flex: 1 }}>
+                    <InputLabel>Field</InputLabel>
+                    <Select
+                      value={cond.field}
+                      label="Field"
+                      onChange={(e) => handleWhereChange(cond.id, 'field', e.target.value)}
+                      disabled={fieldsLoading || fieldOptions.length === 0}
+                    >
+                      {fieldOptions.map(f => (
+                        <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <FormControl sx={{ width: 100 }}>
+                    <InputLabel>Operator</InputLabel>
+                    <Select
+                      value={cond.operator}
+                      label="Operator"
+                      onChange={(e) => handleWhereChange(cond.id, 'operator', e.target.value)}
+                    >
+                      {operators.map(op => (
+                        <MenuItem key={op} value={op}>{op}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <FormControl sx={{ width: 120 }}>
+                    <RadioGroup
+                      row
+                      value={cond.valueType || 'constant'}
+                      onChange={e => handleWhereChange(cond.id, 'valueType', e.target.value)}
+                    >
+                      <FormControlLabel value="constant" control={<Radio />} label="Constant" />
+                      <FormControlLabel value="nested" control={<Radio />} label="Nested Query" />
+                    </RadioGroup>
+                  </FormControl>
+                  <FormControl sx={{ width: 100 }}>
+                    <InputLabel>Logical Op</InputLabel>
+                    <Select
+                      value={cond.logicalOperator}
+                      label="Logical Operator"
+                      onChange={(e) => handleWhereChange(cond.id, 'logicalOperator', e.target.value)}
+                    >
+                      {logicalOperators.map(op => (
+                        <MenuItem key={op} value={op}>{op}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <TextField
+                    label="Group"
+                    type="number"
+                    sx={{ width: 80 }}
+                    value={cond.conditionGroup}
+                    onChange={(e) => handleWhereChange(cond.id, 'conditionGroup', Number(e.target.value))}
+                    inputProps={{ min: 1 }}
+                  />
+                  {whereConditions.length > 1 && (
+                    <IconButton color="error" onClick={() => removeWhereCondition(cond.id)}>
+                      <RemoveCircleOutline />
+                    </IconButton>
+                  )}
+                </Box>
+                {/* Value or Nested Query */}
+                {cond.valueType === 'constant' && (
+                  <TextField
+                    label="Value"
+                    sx={{ mt: 1, width: 300 }}
+                    value={cond.value}
+                    onChange={(e) => handleWhereChange(cond.id, 'value', e.target.value)}
+                  />
+                )}
+                {cond.valueType === 'nested' && (
+                  <NestedQueryBuilder
+                    nestedQuery={cond.nestedQuery || { function: 'MAX', table: '', column: '', filters: [] }}
+                    onChange={q => handleNestedQueryChange(cond.id, q)}
+                    level={1}
+                    tableOptions={tableOptions}
+                    fieldOptionsMap={fieldOptionsMap}
+                    fetchFieldsForTable={fetchFieldsForTable}
+                  />
+                )}
+              </Box>
+            ))}
+            <Button startIcon={<AddCircleOutline />} onClick={addWhereCondition} sx={{ mb: 2 }}>
+              Add Condition
+            </Button>
+          </AccordionDetails>
+                </Accordion>
+
+                {/* Window Functions */}
+                <Accordion>
+                  <AccordionSummary expandIcon={<ExpandMore />}>
+                    <Typography variant="h6">Window Functions</Typography>
+                    {windowFunctionConfigs.length > 0 && (
+                      <Chip 
+                        label={`${windowFunctionConfigs.length} function${windowFunctionConfigs.length > 1 ? 's' : ''}`} 
+                        size="small" 
+                        sx={{ ml: 2 }} 
+                      />
+                    )}
+                  </AccordionSummary>
+                  <AccordionDetails>
+            {windowFunctionConfigs.map((config) => (
+              <Box key={config.id} sx={{ border: '1px solid #ddd', borderRadius: 1, p: 2, mb: 2 }}>
+                <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center' }}>
+                  <FormControl sx={{ minWidth: 150 }}>
+                    <InputLabel>Function</InputLabel>
+                    <Select
+                      value={config.functionName}
+                      label="Function"
+                      onChange={(e) => updateWindowFunction(config.id, 'functionName', e.target.value)}
+                    >
+                      {Object.entries(windowFunctions).map(([key, category]) => [
+                        <MenuItem key={`${key}-header`} disabled sx={{ fontWeight: 'bold' }}>
+                          {category.label}
+                        </MenuItem>,
+                        ...category.functions.map(func => (
+                          <MenuItem key={func} value={func} sx={{ pl: 3 }}>
+                            {func}
+                          </MenuItem>
+                        ))
+                      ]).flat()}
+                    </Select>
+                  </FormControl>
+                  <TextField
+                    label="Alias"
+                    value={config.alias}
+                    onChange={(e) => updateWindowFunction(config.id, 'alias', e.target.value)}
+                    sx={{ minWidth: 120 }}
+                  />
+                  <IconButton color="error" onClick={() => removeWindowFunction(config.id)}>
+                    <RemoveCircleOutline />
+                  </IconButton>
+                </Box>
+                {['SUM', 'AVG', 'COUNT', 'MAX', 'MIN', 'FIRST_VALUE', 'LAST_VALUE'].includes(config.functionName) && (
+                  <FormControl fullWidth sx={{ mb: 2 }}>
+                    <InputLabel>Column</InputLabel>
+                    <Select
+                      value={config.column}
+                      label="Column"
+                      onChange={(e) => updateWindowFunction(config.id, 'column', e.target.value)}
+                    >
+                      {fieldOptions.map(f => (
+                        <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                )}
+                {config.functionName === 'NTILE' && (
+                  <TextField
+                    label="N Value"
+                    type="number"
+                    value={config.nValue}
+                    onChange={(e) => updateWindowFunction(config.id, 'nValue', Number(e.target.value))}
+                    sx={{ mb: 2, width: 120 }}
+                    inputProps={{ min: 1 }}
+                  />
+                )}
+                {['LAG', 'LEAD'].includes(config.functionName) && (
+                  <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+                    <FormControl sx={{ flex: 1 }}>
+                      <InputLabel>Column</InputLabel>
+                      <Select
+                        value={config.column}
+                        label="Column"
+                        onChange={(e) => updateWindowFunction(config.id, 'column', e.target.value)}
+                      >
+                        {fieldOptions.map(f => (
+                          <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <TextField
+                      label="Offset"
+                      type="number"
+                      value={config.offsetValue}
+                      onChange={(e) => updateWindowFunction(config.id, 'offsetValue', Number(e.target.value))}
+                      sx={{ width: 100 }}
+                      inputProps={{ min: 1 }}
+                    />
+                    <TextField
+                      label="Default Value"
+                      value={config.defaultValue}
+                      onChange={(e) => updateWindowFunction(config.id, 'defaultValue', e.target.value)}
+                      sx={{ width: 120 }}
+                    />
+                  </Box>
+                )}
+                {config.functionName === 'NTH_VALUE' && (
+                  <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+                    <FormControl sx={{ flex: 1 }}>
+                      <InputLabel>Column</InputLabel>
+                      <Select
+                        value={config.column}
+                        label="Column"
+                        onChange={(e) => updateWindowFunction(config.id, 'column', e.target.value)}
+                      >
+                        {fieldOptions.map(f => (
+                          <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <TextField
+                      label="N Value"
+                      type="number"
+                      value={config.nValue}
+                      onChange={(e) => updateWindowFunction(config.id, 'nValue', Number(e.target.value))}
+                      sx={{ width: 100 }}
+                      inputProps={{ min: 1 }}
+                    />
+                  </Box>
+                )}
+                <FormControl fullWidth sx={{ mb: 2 }}>
+                  <InputLabel>Ordering Strategy</InputLabel>
+                  <Select
+                    value={config.orderingStrategy}
+                    label="Ordering Strategy"
+                    onChange={(e) => updateWindowFunction(config.id, 'orderingStrategy', e.target.value)}
+                  >
+                    {orderingStrategies.map(strategy => (
+                      <MenuItem key={strategy.value} value={strategy.value}>
+                        <Box>
+                          <Typography variant="body2">{strategy.label}</Typography>
+                          <Typography variant="caption" color="textSecondary">
+                            {strategy.description}
+                          </Typography>
+                        </Box>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+                  <TextField
+                    label="Partition By"
+                    value={config.partitionBy}
+                    onChange={(e) => updateWindowFunction(config.id, 'partitionBy', e.target.value)}
+                    sx={{ flex: 1 }}
+                    placeholder="department, region"
+                  />
+                  <TextField
+                    label={config.orderingStrategy === 'custom' ? 'Order By (Custom)' : 'Order By (Auto-generated)'}
+                    value={config.orderingStrategy === 'custom' ? config.orderBy : generateOrderByFromStrategy(config.orderingStrategy, config)}
+                    onChange={(e) => updateWindowFunction(config.id, 'orderBy', e.target.value)}
+                    sx={{ flex: 1 }}
+                    placeholder="salary DESC, age ASC"
+                    disabled={config.orderingStrategy !== 'custom'}
+                  />
+                </Box>
+                <TextField
+                  label="Frame Clause (Optional)"
+                  value={config.frameClause}
+                  onChange={(e) => updateWindowFunction(config.id, 'frameClause', e.target.value)}
+                  fullWidth
+                  placeholder="ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"
+                  sx={{ mb: 1 }}
+                />
+                <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'primary.main' }}>
+                  Preview: {buildWindowFunctionSQL(config)}
+                </Typography>
+              </Box>
+            ))}
+            <Button startIcon={<AddCircleOutline />} onClick={addWindowFunction}>
+              Add Window Function
+            </Button>
+          </AccordionDetails>
+                </Accordion>
+
+                {/* Other SQL Clauses */}
+                <Accordion>
+                  <AccordionSummary expandIcon={<ExpandMore />}>
+                    <Typography variant="h6">Additional SQL Clauses</Typography>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                              <TextField
+                                label="Group By (comma separated)"
+                                fullWidth
+                                value={groupBy}
+                                onChange={(e) => setGroupBy(e.target.value)}
+                                sx={{ mb: 2 }}
+                                placeholder="age, status"
+                              />
+                              <TextField
+                                label="Having Clause"
+                                fullWidth
+                                value={having}
+                                onChange={(e) => setHaving(e.target.value)}
+                                sx={{ mb: 2 }}
+                                placeholder="COUNT(age) > 1"
+                              />
+                              <TextField
+                                label="Order By"
+                                fullWidth
+                                value={orderBy}
+                                onChange={(e) => setOrderBy(e.target.value)}
+                                sx={{ mb: 2 }}
+                                placeholder="age DESC, salary ASC"
+                              />
+                              <TextField
+                                label="Limit"
+                                fullWidth
+                                value={limit}
+                                onChange={(e) => setLimit(e.target.value)}
+                                sx={{ mb: 2 }}
+                                placeholder="10"
+                              />
+                            </AccordionDetails>
+                </Accordion>
+
+                {/* Query Preview */}
+                <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+          <Typography variant="h6" gutterBottom>Query Preview</Typography>
+          <Typography 
+            variant="body2" 
+            sx={{ 
+              fontFamily: 'monospace', 
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-all',
+              bgcolor: 'white',
+              p: 2,
+              border: '1px solid #ddd',
+              borderRadius: 1
+            }}
+          >
+            {buildQuery() || 'Query will appear here...'}
+          </Typography>
+        </Box>
+              </Box>
+            </>
+          )}
+
+          {/* Submit and Cancel Buttons */}
+          <div className="form-group pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-200"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSubmitting ? 'Submitting...' : isEditing ? 'Update Filter' : 'Create Filter'}
+            </button>
+          </div>
+        </form>
+      </div>
+    );
+  }
+
+  // If parentMode is 'inline', render the original modal
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50"
-      onClick={onClose}
+      onClick={() => {}}
     >
       <div
         className="bg-white dark:bg-gray-900 rounded-lg shadow-lg max-w-5xl w-full max-h-[90vh] overflow-auto"
@@ -1277,7 +2665,7 @@ const validateField = (fieldName: string) => {
           </button>
 
           <button
-            onClick={onClose}
+            onClick={() => {}}
             className="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white text-3xl font-bold leading-none"
             aria-label="Close modal"
           >
@@ -1306,8 +2694,9 @@ const validateField = (fieldName: string) => {
         </div>
 
         {/* Form */}
-        <form className="p-6 space-y-6" onSubmit={handleSubmit} noValidate>
-           {activeTab === 'basic' && (
+       
+          <form className="p-6 space-y-6 max-h-[72vh] overflow-y-auto" onSubmit={handleSubmit} noValidate>
+          {activeTab === 'basic' && (
             <>
               {/* Filter Name */}
               <div className="form-group">
@@ -1319,7 +2708,7 @@ const validateField = (fieldName: string) => {
                   value={filter.name || ''}
                   onChange={(e) => updateFilter({ name: e.target.value })}
                   onBlur={() => handleBlur('name')}
-                  placeholder="Enter filter name"
+                  placeholder="Enter filter name11"
                   className={getFieldClassName('name', 'w-full border')}
                   required
                 />
@@ -1334,11 +2723,41 @@ const validateField = (fieldName: string) => {
                 <textarea
                   value={filter.description || ''}
                   onChange={(e) => updateFilter({ description: e.target.value })}
-                  placeholder="Enter filter description"
+                  placeholder="Enter filter description22"
                   className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:text-white"
                   rows={3}
                 />
               </div>
+              {/* QueryPreview checkbox and FilterApply dropdown (under Description) */}
+  <div className="form-group mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div className="flex items-center space-x-3">
+      <input
+        id="queryPreviewCheckbox_inline"
+        type="checkbox"
+        checked={filter.queryPreview ?? false}
+        onChange={(e) => updateFilter({ queryPreview: e.target.checked })}
+        className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500"
+      />
+      <label htmlFor="queryPreviewCheckbox_inline" className="font-medium text-gray-900 dark:text-gray-100 select-none">
+        QueryPreview
+      </label>
+    </div>
+
+    <div>
+      <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">FilterApply:</label>
+      <select
+        value={filter.filterApply || 'Live'}
+        onChange={(e) => updateFilter({ filterApply: e.target.value as 'Live' | 'Manual' })}
+        className={getFieldClassName('filterApply', 'w-full border')}
+      >
+        <option value="Live">Live</option>
+        <option value="Manual">Manual</option>
+      </select>
+      <div className="text-gray-500 dark:text-gray-400 text-xs mt-1">
+        Live: apply immediately as user changes — Manual: requires explicit Apply
+      </div>
+    </div>
+  </div>
 
               {/* Filter Type */}
               <div className="form-group">
@@ -1445,8 +2864,12 @@ const validateField = (fieldName: string) => {
                 <input
                   type="text"
                   value={filter.field || ''}
-                  onChange={(e) => updateFilter({ field: e.target.value })}
-                  onBlur={() => handleBlur('field')}
+                  onChange={(e) => {
+  const val = e.target.value;
+  updateFilter({ field: val });
+  validateField('field'); // live validation
+}}
+onBlur={() => handleBlur('field')}
                   placeholder={
                     filter.webapiType === 'dynamic'
                       ? 'E.g. tableName.fieldName (required for Dynamic)'
@@ -1749,15 +3172,13 @@ const validateField = (fieldName: string) => {
           {activeTab === 'queryBuilder' && (
             <>
               {/* New Query Builder Tab Content */}
-              <Box sx={{ p: 2 }}>
+              <Box sx={{ p: 2, maxHeight: '60vh', overflowY: 'auto' }}>
                 {/* Error message */}
                 {error && (
                   <Typography color="error" sx={{ mb: 2 }}>
                     {error}
                   </Typography>
-                )}
-
-              
+                )} 
 
                 <FormControl fullWidth sx={{ mb: 2 }}>
                   <InputLabel>SQL Statement</InputLabel>
@@ -2355,81 +3776,4 @@ const validateField = (fieldName: string) => {
   );
 };
 
-// --- FilterManager Component with Theme Toggle ---
-
-const FilterManager: React.FC = () => {
-  const [isCreatingFilter, setIsCreatingFilter] = useState(false);
-  const [editingFilter, setEditingFilter] = useState<Filter | null>(null);
-  const [newFilter, setNewFilter] = useState<Partial<Filter>>({
-    name: '',
-    type: 'select',
-    position: 1,
-    isActive: true,
-    required: false,
-    visible: true,
-    multiSelect: false,
-    allowCustom: false,
-    tags: [],
-    options: [],
-    config: {},
-  });
-
-  const { theme, toggleTheme } = useTheme();
-
-  const resetNewFilter = () => {
-    setNewFilter({
-      name: '',
-      type: 'select',
-      position: 1,
-      isActive: true,
-      required: false,
-      visible: true,
-      multiSelect: false,
-      allowCustom: false,
-      tags: [],
-      options: [],
-      config: {},
-    });
-  };
-
-  return (
-    <div className="p-4">
-      {/* Button to open modal */}
-      <button
-        onClick={() => setIsCreatingFilter(true)}
-        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-      >
-        Create Filter
-      </button>
-
-      <FilterModal
-        isOpen={isCreatingFilter}
-        onClose={() => {
-          setIsCreatingFilter(false);
-          resetNewFilter();
-          setEditingFilter(null);
-        }}
-        isEditing={false}
-        editingFilter={editingFilter}
-        setEditingFilter={setEditingFilter}
-        newFilter={newFilter}
-        setNewFilter={setNewFilter}
-        resetNewFilter={resetNewFilter}
-        onSubmit={() => {
-          setIsCreatingFilter(false);
-          resetNewFilter();
-        }}
-      />
-    </div>
-  );
-};
-
-// --- Export wrapped with ThemeProvider ---
-
-const FilterManagerWithTheme: React.FC = () => (
-  <ThemeProvider>
-    <FilterManager />
-  </ThemeProvider>
-);
-
-export default FilterManagerWithTheme;
+export default BasicTab;

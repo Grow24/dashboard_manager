@@ -1,2806 +1,1843 @@
-import React, { useState, useEffect } from "react";
-import { DndProvider, useDrag, useDrop } from "react-dnd";
-import { HTML5Backend } from "react-dnd-html5-backend";
-import { Combobox } from "@headlessui/react";
-import "./css/tableu.css";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  Legend,
-  PieChart,
-  Pie,
-  Cell,
-  LineChart,
-  Line,
-} from "recharts";
+import React, { useEffect, useState } from 'react';
 
-const ItemTypes = { FIELD: "field" };
+type DashboardType = 'BASIC' | 'STANDARD';
+type VisualType = 'KPI' | 'CHART' | 'TABLE' | 'TEXT' | 'CUSTOM';
+type ChartType = 'BAR' | 'PIE' | 'LINE';
+type SourceType = 'API' | 'SQL' | 'STATIC';
+type HttpMethod = 'GET' | 'POST';
 
-const icons = {
-  Dimension: "📐",
-  Measure: "📊",
-  Metric: "📈",
-};
+interface Dashboard {
+  id: number;
+  name: string;
+  description?: string;
+  type: DashboardType;
+  is_default?: boolean;
+  owner_user_id?: number;
+  is_active?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  widgets?: Widget[];
+}
 
-const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042"];
+interface Widget {
+  id?: number;
+  dashboard_id: number;
+  title?: string;
+  visual_type: VisualType;
+  chart_type?: ChartType;
+  position_row: number;
+  position_col: number;
+  row_span: number;
+  col_span: number;
+  background_color?: string;
+  config_json?: Record<string, any> | null;
+  data_source_id?: number | null;
+  refresh_interval_sec?: number | null;
+  is_visible?: boolean;
+  sort_order?: number;
+  created_at?: string;
+  updated_at?: string;
+}
 
-/* ----------------- Window Function Configuration Constants ----------------- */
-const WINDOW_DIRECTIONS = {
-  "Table (across)": "TABLE_ACROSS",
-  "Table (down then across)": "TABLE_DOWN_THEN_ACROSS",
-  "Pane (down)": "PANE_DOWN",
-  "Cell": "CELL",
-  "Specific Dimensions": "SPECIFIC_DIMENSIONS",
-  "Window Across": "WINDOW_ACROSS",
-  "Window Down": "WINDOW_DOWN",
-  "Pane Across": "PANE_ACROSS",
-  "Pane Down": "PANE_DOWN",
-  "Down Then Across": "DOWN_THEN_ACROSS",
-  "Across Then Down": "ACROSS_THEN_DOWN",
-};
+interface DataSource {
+  id?: number;
+  name: string;
+  code?: string;
+  source_type: SourceType;
+  endpoint_url?: string;
+  http_method?: HttpMethod;
+  request_headers_json?: any;
+  request_query_params_json?: any;
+  request_body_template_json?: any;
+  response_mapping_json?: any;
+  is_cached?: boolean;
+  cache_ttl_sec?: number | null;
+  created_at?: string;
+  updated_at?: string;
+}
 
+const API_BASE = 'https://intelligentsalesman.com/ism1/API/dashboard_manager/api/index.php';
 
-const FUNCTION_CATEGORIES = {
-  Aggregate: ["SUM", "AVG", "COUNT", "MAX", "MIN", "STDDEV", "VARIANCE"],
-  "Non-aggregate": [
-    "ROW_NUMBER",
-    "RANK",
-    "DENSE_RANK",
-    "NTILE",
-    "LAG",
-    "LEAD",
-    "FIRST_VALUE",
-    "LAST_VALUE",
-    "PERCENT_RANK",
-    "CUME_DIST",
-  ],
-};
+function buildApiUrl(path: string) {
+  const cleaned = path.replace(/^\//, '');
+  const [resourcePart, queryPart] = cleaned.split('?');
+  let url = `${API_BASE}?resource=${encodeURIComponent(resourcePart)}`;
+  if (queryPart && queryPart.trim() !== '') {
+    url += `&${queryPart}`;
+  }
+  return url;
+}
 
-const FRAME_TYPES = ["ROWS", "RANGE"];
+async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const url = buildApiUrl(path);
+  const method = (options.method || 'GET').toUpperCase();
+  const baseHeaders: Record<string, string> = {
+    Accept: 'application/json',
+    ...((options && options.headers) ? (options.headers as any) : {}),
+  };
 
-const FRAME_BOUNDARIES = {
-  "UNBOUNDED PRECEDING": "UNBOUNDED PRECEDING",
-  "CURRENT ROW": "CURRENT ROW",
-  "UNBOUNDED FOLLOWING": "UNBOUNDED FOLLOWING",
-  "N PRECEDING": "N PRECEDING",
-  "N FOLLOWING": "N FOLLOWING",
-};
+  // Only set Content-Type if we are sending a body and none provided
+  if (options.body && !(options.headers && (options.headers as any)['Content-Type'])) {
+    baseHeaders['Content-Type'] = 'application/json';
+  }
 
-const LOD_SCOPES = ["INCLUDE", "EXCLUDE", "FIXED"];
+  const fetchOpts: RequestInit = {
+    method,
+    mode: 'cors',
+    credentials: 'same-origin',
+    headers: baseHeaders,
+  };
 
-/* ----------------- Generic Modal ----------------- */
-const Modal = ({ visible, title, onClose, maxWidth = "900px", children, footer }) => {
-  if (!visible) return null;
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.5)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 1000,
-        padding: 16,
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: "#fff",
-          borderRadius: 10,
-          width: "100%",
-          maxWidth,
-          maxHeight: "90vh",
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-        }}
-      >
-        <div style={{ padding: "14px 16px", borderBottom: "1px solid #eee", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <h3 style={{ margin: 0, fontSize: 18 }}>{title}</h3>
-          <button onClick={onClose} style={{ border: 0, background: "transparent", fontSize: 20, cursor: "pointer" }}>×</button>
-        </div>
-        <div style={{ padding: 16, overflow: "auto" }}>{children}</div>
-        {footer && (
-          <div style={{ padding: 12, borderTop: "1px solid #eee", display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            {footer}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
+  if (options.body && method !== 'GET' && method !== 'HEAD') {
+    fetchOpts.body = options.body;
+  }
 
-/* ----------------- Single Select Combobox ----------------- */
-const SingleSelectCombobox = ({ options, value, onChange, placeholder = "Select..." }) => {
-  const [query, setQuery] = React.useState("");
+  try {
+    const res = await fetch(url, fetchOpts);
+    const text = await res.text();
 
-  const normalized = React.useMemo(() => {
-    if (!options) return [];
-    if (typeof options[0] === "string") {
-      return options.map((t) => ({ label: t, value: t }));
+    if (!res.ok) {
+      let parsed = null;
+      try { parsed = JSON.parse(text); } catch {}
+      throw new Error(parsed?.error || parsed?.message || `${res.status} ${res.statusText} - ${text}`);
     }
-    return options;
-  }, [options]);
 
-  const filtered = query === ""
-    ? normalized
-    : normalized.filter((o) => o.label.toLowerCase().includes(query.toLowerCase()));
-
-  const selectedOption = normalized.find((o) => o.value === value) || null;
-
-  return (
-    <Combobox value={selectedOption} onChange={(opt) => onChange(opt?.value || "")}>
-      <div style={{ position: "relative" }}>
-        <Combobox.Input
-          style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 4 }}
-          displayValue={(opt) => opt?.label || ""}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={placeholder}
-        />
-        <Combobox.Options
-          style={{
-            position: "absolute",
-            top: "100%",
-            left: 0,
-            right: 0,
-            backgroundColor: "white",
-            border: "1px solid #ddd",
-            borderRadius: 4,
-            maxHeight: 220,
-            overflowY: "auto",
-            zIndex: 20,
-          }}
-        >
-          {filtered.length === 0 ? (
-            <div style={{ padding: 8, color: "#888" }}>No results</div>
-          ) : (
-            filtered.map((option) => (
-              <Combobox.Option
-                key={option.value}
-                value={option}
-                style={{ padding: 8, cursor: "pointer" }}
-              >
-                {({ selected, active }) => (
-                  <div
-                    style={{
-                      fontWeight: selected ? "600" : "400",
-                      backgroundColor: active ? "#f3f4f6" : "transparent",
-                      borderRadius: 4,
-                    }}
-                  >
-                    {option.label}
-                  </div>
-                )}
-              </Combobox.Option>
-            ))
-          )}
-        </Combobox.Options>
-      </div>
-    </Combobox>
-  );
-};
-
-/* ----------------- Multi-select Combobox ----------------- */
-const MultiSelectCombobox = ({ options, value, onChange, placeholder = "Select..." }) => {
-  const [query, setQuery] = useState("");
-  const normalized = React.useMemo(() => {
-    if (!options) return [];
-    if (typeof options[0] === "string") {
-      return options.map((t) => ({ label: t, value: t }));
+    if (!text) {
+      // @ts-ignore
+      return null;
     }
-    return options;
-  }, [options]);
 
-  const filtered = query === ""
-    ? normalized
-    : normalized.filter((o) => o.label.toLowerCase().includes(query.toLowerCase()));
+    const data = JSON.parse(text);
+    return data as T;
+  } catch (err: any) {
+    if (err instanceof TypeError) {
+      throw new Error(`Network or CORS error: ${err.message}`);
+    }
+    throw err;
+  }
+}
 
-  const display = (selectedValues) =>
-    (selectedValues || [])
-      .map((val) => normalized.find((o) => o.value === val)?.label || val)
-      .join(", ");
+/* -------------------- Normalization Utilities -------------------- */
 
-  return (
-    <Combobox value={value} onChange={onChange} multiple>
-      <div style={{ position: "relative" }}>
-        <Combobox.Input
-          style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 4 }}
-          displayValue={display}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={placeholder}
-        />
-        <Combobox.Options
-          style={{
-            position: "absolute",
-            top: "100%",
-            left: 0,
-            right: 0,
-            backgroundColor: "white",
-            border: "1px solid #ddd",
-            borderRadius: 4,
-            maxHeight: 220,
-            overflowY: "auto",
-            zIndex: 20,
-          }}
-        >
-          {filtered.length === 0 ? (
-            <div style={{ padding: 8, color: "#888" }}>No results</div>
-          ) : (
-            filtered.map((option) => (
-              <Combobox.Option
-                key={option.value}
-                value={option.value}
-                style={{ padding: 8, cursor: "pointer" }}
-              >
-                {({ selected, active }) => (
-                  <div
-                    style={{
-                      fontWeight: selected ? "600" : "400",
-                      backgroundColor: active ? "#f3f4f6" : "transparent",
-                      borderRadius: 4,
-                    }}
-                  >
-                    {option.label}
-                  </div>
-                )}
-              </Combobox.Option>
-            ))
-          )}
-        </Combobox.Options>
-      </div>
-    </Combobox>
-  );
-};
+type NormalizedKPI = { kind: 'kpi'; value?: number | string; unit?: string; trend?: number | string; trend_direction?: 'up' | 'down' | 'flat'; previous?: number | null; description?: string; metrics?: Record<string, number | string>; raw?: any; };
+type NormalizedChart = { kind: 'chart'; data: { label: string; value: number }[]; max?: number; raw?: any; };
+type NormalizedTable = { kind: 'table'; columns: string[]; rows: any[]; raw?: any; };
+type NormalizedResponse = NormalizedKPI | NormalizedChart | NormalizedTable | { kind: 'raw'; raw: any; } | { kind: 'text'; text: string; raw?: any; };
 
-/* ----------------- Advanced Window Function Builder ----------------- */
-const AdvancedWindowFunctionBuilder = ({ windowConfig, onChange, allFields, dimensionFields, measureFields }) => {
-  const updateWindow = (patch) => {
-    onChange({ ...windowConfig, ...patch });
-  };
+function normalizeApiResponse(raw: any): NormalizedResponse {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    if ('value' in raw || 'trend' in raw || 'metrics' in raw) {
+      const kpi: NormalizedKPI = {
+        kind: 'kpi',
+        value: raw.value ?? (raw.metrics ? Object.values(raw.metrics)[0] : undefined),
+        unit: raw.unit ?? undefined,
+        trend: raw.trend ?? undefined,
+        trend_direction: raw.trend_direction ?? (typeof raw.trend === 'number' ? (raw.trend > 0 ? 'up' : raw.trend < 0 ? 'down' : 'flat') : undefined),
+        previous: raw.previous ?? null,
+        description: raw.description ?? undefined,
+        metrics: raw.metrics ?? undefined,
+        raw
+      };
+      return kpi;
+    }
 
-  const getAvailableFunctions = () => {
-    const category = windowConfig.functionCategory || "Aggregate";
-    return FUNCTION_CATEGORIES[category] || [];
-  };
+    if (Array.isArray(raw.data) && raw.data.length > 0) {
+      const data = raw.data.map((d: any) => {
+        if (typeof d === 'object') return { label: d.label ?? d.name ?? d.key ?? String(d.x ?? ''), value: Number(d.value ?? d.y ?? 0) };
+        return { label: String(d[0] ?? ''), value: Number(d[1] ?? 0) };
+      });
+      return { kind: 'chart', data, max: raw.max ?? undefined, raw };
+    }
 
-  const isAggregateFunction = () => {
-    return FUNCTION_CATEGORIES["Aggregate"].includes(windowConfig.fn);
-  };
+    if (Array.isArray(raw.rows) && Array.isArray(raw.columns)) {
+      return { kind: 'table', columns: raw.columns, rows: raw.rows, raw };
+    }
 
-  const needsTargetField = () => {
-    return ["SUM", "AVG", "COUNT", "MAX", "MIN", "STDDEV", "VARIANCE"].includes(windowConfig.fn);
-  };
-
-  const needsOffsetValue = () => {
-    return ["LAG", "LEAD", "NTILE"].includes(windowConfig.fn);
-  };
-
-  return (
-    <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: 16, backgroundColor: "#f9f9f9" }}>
-      <h4 style={{ margin: "0 0 16px 0", color: "#333" }}>Advanced Window Function Configuration</h4>
-<div style={{ marginBottom: 12 }}>
-        <label style={{ display: "block", fontWeight: 600, marginBottom: 4 }}>Direction of Calculation:</label>
-        <select
-          value={windowConfig.direction || "Table (down then across)"}
-          onChange={(e) => onChange({ ...windowConfig, direction: e.target.value })}
-          style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid #ddd" }}
-        >
-          {Object.keys(WINDOW_DIRECTIONS).map(dir => (
-            <option key={dir} value={dir}>{dir}</option>
-          ))}
-        </select>
-        <small style={{ color: "#666", fontSize: 12 }}>
-          Controls how the window function processes data across rows and columns
-        </small>
-      </div>
-      {/* Direction of Calculation */}
+    const numericProps = Object.keys(raw).filter(k => typeof raw[k] === 'number');
+    if (numericProps.length === 1) {
+      return { kind: 'kpi', value: raw[numericProps[0]], raw };
+    }
     
-
-      {/* Function Category */}
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ display: "block", fontWeight: 600, marginBottom: 4 }}>Function Category:</label>
-        <select
-          value={windowConfig.functionCategory || "Aggregate"}
-          onChange={(e) => updateWindow({
-            functionCategory: e.target.value,
-            fn: FUNCTION_CATEGORIES[e.target.value][0] // Reset function when category changes
-          })}
-          style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid #ddd" }}
-        >
-          {Object.keys(FUNCTION_CATEGORIES).map(cat => (
-            <option key={cat} value={cat}>{cat}</option>
-          ))}
-        </select>
-      </div>
-
-      {/* Function Selection */}
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ display: "block", fontWeight: 600, marginBottom: 4 }}>Function:</label>
-        <select
-          value={windowConfig.fn || getAvailableFunctions()[0]}
-          onChange={(e) => updateWindow({ fn: e.target.value })}
-          style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid #ddd" }}
-        >
-          {getAvailableFunctions().map(fn => (
-            <option key={fn} value={fn}>{fn}</option>
-          ))}
-        </select>
-      </div>
-
-      {/* Target Field (for aggregate functions) */}
-      {needsTargetField() && (
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ display: "block", fontWeight: 600, marginBottom: 4 }}>Target Field:</label>
-          <select
-            value={windowConfig.targetField || ""}
-            onChange={(e) => updateWindow({ targetField: e.target.value })}
-            style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid #ddd" }}
-          >
-            <option value="">Select field...</option>
-            {(isAggregateFunction() ? measureFields : allFields).map(f => (
-              <option key={f} value={f}>{f}</option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      {/* Offset Value (for LAG, LEAD, NTILE) */}
-      {needsOffsetValue() && (
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ display: "block", fontWeight: 600, marginBottom: 4 }}>
-            {windowConfig.fn === "NTILE" ? "Number of Buckets:" : "Offset:"}
-          </label>
-          <input
-            type="number"
-            min="1"
-            value={windowConfig.offsetValue || 1}
-            onChange={(e) => updateWindow({ offsetValue: parseInt(e.target.value) || 1 })}
-            style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid #ddd" }}
-          />
-        </div>
-      )}
-
-      {/* LOD Scope */}
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ display: "block", fontWeight: 600, marginBottom: 4 }}>LOD (Level of Detail) Scope:</label>
-        <select
-          value={windowConfig.lodScope || "INCLUDE"}
-          onChange={(e) => updateWindow({ lodScope: e.target.value })}
-          style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid #ddd" }}
-        >
-          {LOD_SCOPES.map(scope => (
-            <option key={scope} value={scope}>{scope}</option>
-          ))}
-        </select>
-        <small style={{ color: "#666", fontSize: 12 }}>
-          INCLUDE: Include specified dimensions, EXCLUDE: Exclude specified dimensions, FIXED: Use only specified dimensions
-        </small>
-      </div>
-
-      {/* LOD Fields */}
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ display: "block", fontWeight: 600, marginBottom: 4 }}>LOD Fields:</label>
-        <MultiSelectCombobox
-          options={dimensionFields.map(f => ({ label: f, value: f }))}
-          value={windowConfig.lodFields || []}
-          onChange={(vals) => updateWindow({ lodFields: vals })}
-          placeholder="Select dimensions for LOD..."
-        />
-      </div>
-
-      {/* Partition By */}
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ display: "block", fontWeight: 600, marginBottom: 4 }}>Partition By:</label>
-        <MultiSelectCombobox
-          options={dimensionFields.map(f => ({ label: f, value: f }))}
-          value={windowConfig.partitionBy || []}
-          onChange={(vals) => updateWindow({ partitionBy: vals })}
-          placeholder="Select fields to partition by..."
-        />
-        <small style={{ color: "#666", fontSize: 12 }}>
-          Groups rows into partitions for separate window calculations
-        </small>
-      </div>
-
-      {/* Order By */}
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ display: "block", fontWeight: 600, marginBottom: 4 }}>Order By:</label>
-        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-          <select
-            value={windowConfig.orderBy?.[0]?.field || ""}
-            onChange={(e) => {
-              const field = e.target.value;
-              const direction = windowConfig.orderBy?.[0]?.direction || "ASC";
-              updateWindow({
-                orderBy: field ? [{ field, direction }] : []
-              });
-            }}
-            style={{ flex: 1, padding: 8, borderRadius: 4, border: "1px solid #ddd" }}
-          >
-            <option value="">Select field...</option>
-            {allFields.map(f => (
-              <option key={f} value={f}>{f}</option>
-            ))}
-          </select>
-          <select
-            value={windowConfig.orderBy?.[0]?.direction || "ASC"}
-            onChange={(e) => {
-              const field = windowConfig.orderBy?.[0]?.field || "";
-              const direction = e.target.value;
-              updateWindow({
-                orderBy: field ? [{ field, direction }] : []
-              });
-            }}
-            style={{ width: 100, padding: 8, borderRadius: 4, border: "1px solid #ddd" }}
-          >
-            <option value="ASC">ASC</option>
-            <option value="DESC">DESC</option>
-          </select>
-        </div>
-        <small style={{ color: "#666", fontSize: 12 }}>
-          Defines the order of rows within each partition
-        </small>
-      </div>
-
-      {/* Frame Type */}
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ display: "block", fontWeight: 600, marginBottom: 4 }}>Frame Type:</label>
-        <select
-          value={windowConfig.frameType || "ROWS"}
-          onChange={(e) => updateWindow({ frameType: e.target.value })}
-          style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid #ddd" }}
-        >
-          {FRAME_TYPES.map(type => (
-            <option key={type} value={type}>{type}</option>
-          ))}
-        </select>
-        <small style={{ color: "#666", fontSize: 12 }}>
-          ROWS: Physical row boundaries, RANGE: Logical value boundaries
-        </small>
-      </div>
-
-      {/* Frame Start */}
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ display: "block", fontWeight: 600, marginBottom: 4 }}>Frame Start:</label>
-        <div style={{ display: "flex", gap: 8 }}>
-          <select
-            value={windowConfig.frameStart || "UNBOUNDED PRECEDING"}
-            onChange={(e) => updateWindow({ frameStart: e.target.value })}
-            style={{ flex: 1, padding: 8, borderRadius: 4, border: "1px solid #ddd" }}
-          >
-            {Object.keys(FRAME_BOUNDARIES).map(boundary => (
-              <option key={boundary} value={boundary}>{boundary}</option>
-            ))}
-          </select>
-          {(windowConfig.frameStart === "N PRECEDING" || windowConfig.frameStart === "N FOLLOWING") && (
-            <input
-              type="number"
-              min="1"
-              value={windowConfig.frameStartValue || 1}
-              onChange={(e) => updateWindow({ frameStartValue: parseInt(e.target.value) || 1 })}
-              style={{ width: 80, padding: 8, borderRadius: 4, border: "1px solid #ddd" }}
-              placeholder="N"
-            />
-          )}
-        </div>
-      </div>
-
-      {/* Frame End */}
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ display: "block", fontWeight: 600, marginBottom: 4 }}>Frame End:</label>
-        <div style={{ display: "flex", gap: 8 }}>
-          <select
-            value={windowConfig.frameEnd || "CURRENT ROW"}
-            onChange={(e) => updateWindow({ frameEnd: e.target.value })}
-            style={{ flex: 1, padding: 8, borderRadius: 4, border: "1px solid #ddd" }}
-          >
-            {Object.keys(FRAME_BOUNDARIES).map(boundary => (
-              <option key={boundary} value={boundary}>{boundary}</option>
-            ))}
-          </select>
-          {(windowConfig.frameEnd === "N PRECEDING" || windowConfig.frameEnd === "N FOLLOWING") && (
-            <input
-              type="number"
-              min="1"
-              value={windowConfig.frameEndValue || 1}
-              onChange={(e) => updateWindow({ frameEndValue: parseInt(e.target.value) || 1 })}
-              style={{ width: 80, padding: 8, borderRadius: 4, border: "1px solid #ddd" }}
-              placeholder="N"
-            />
-          )}
-        </div>
-      </div>
-
-      {/* Alias */}
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ display: "block", fontWeight: 600, marginBottom: 4 }}>Alias:</label>
-        <input
-          type="text"
-          value={windowConfig.alias || ""}
-          onChange={(e) => updateWindow({ alias: e.target.value })}
-          placeholder="e.g. running_total, row_rank"
-          style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid #ddd" }}
-        />
-      </div>
-
-      {/* Preview */}
-      <div style={{ marginTop: 16, padding: 12, backgroundColor: "#f0f0f0", borderRadius: 4 }}>
-        <label style={{ display: "block", fontWeight: 600, marginBottom: 4 }}>SQL Preview:</label>
-        <code style={{ fontSize: 12, color: "#333" }}>
-          {generateWindowFunctionPreview(windowConfig, dimensionFields, [], [])}
-        </code>
-      </div>
-    </div>
-  );
-};
-
-/* ----------------- Window Function Preview Generator ----------------- */
-const generateWindowFunctionPreview = (w, dimensionFields = [], columnsSlot = [], rows = []) => {
-  if (!w.fn) return "SELECT ... -- Configure function first";
-
-  let expr = w.fn;
-
-  // Add target field for aggregate functions
-  if (["SUM", "AVG", "COUNT", "MAX", "MIN", "STDDEV", "VARIANCE"].includes(w.fn) && w.targetField) {
-    expr += `(${w.targetField})`;
-  } else if (["LAG", "LEAD"].includes(w.fn)) {
-    expr += `(${w.targetField || "field"}, ${w.offsetValue || 1})`;
-  } else if (w.fn === "NTILE") {
-    expr += `(${w.offsetValue || 4})`;
-  } else if (!["SUM", "AVG", "COUNT", "MAX", "MIN", "STDDEV", "VARIANCE"].includes(w.fn)) {
-    expr += "()";
-  }
-
-  // Add direction comment
-  if (w.direction) {
-    expr = `/* ${w.direction} */ ` + expr;
-  }
-
-  expr += " OVER (";
-
-  const parts = [];
-
-  // Auto-determine partition based on direction and chart slots
-  let autoPartition = [];
-  if (w.direction === "Table") {
-    // Table: no partitioning; full data set is the window
-    autoPartition = [];
-  } else if (w.direction === "Pane Across" || w.direction === "Pane Down") {
-    // Pane: partition by visual grouping dims (rows)
-    autoPartition = rows.filter(f => dimensionFields.includes(f.name)).map(f => f.name);
-  } else if (w.direction === "Cell") {
-    // Cell: partition by all displayed dims
-    const allDisplayedDims = [...rows, ...columnsSlot].filter(f => dimensionFields.includes(f.name)).map(f => f.name);
-    autoPartition = [...new Set(allDisplayedDims)];
-  }
-
-  // Use manual partition if specified, otherwise use auto-determined
-  const partitionFields = (w.partitionBy && w.partitionBy.length > 0) ? w.partitionBy : autoPartition;
-
-  if (partitionFields.length > 0) {
-    parts.push(`PARTITION BY ${partitionFields.join(", ")}`);
-  }
-
-  // Order By
-  if (w.orderBy && w.orderBy.length > 0) {
-    const orderClauses = w.orderBy.map(o => `${o.field} ${o.direction || "ASC"}`);
-    parts.push(`ORDER BY ${orderClauses.join(", ")}`);
-  }
-
-  expr += parts.join(" ");
-
-  // Frame specification with proper handling - only add frame if ORDER BY exists
-  const hasOrder = w.orderBy && w.orderBy.length > 0;
-
-  if (hasOrder && w.frameType && w.frameStart && w.frameEnd) {
-    let frameSpec = ` ${w.frameType} BETWEEN `;
-
-    if (w.frameStart === "N PRECEDING") {
-      frameSpec += `${w.frameStartValue || 1} PRECEDING`;
-    } else if (w.frameStart === "N FOLLOWING") {
-      frameSpec += `${w.frameStartValue || 1} FOLLOWING`;
-    } else {
-      frameSpec += w.frameStart;
+    // Handle text content
+    if (typeof raw.text === 'string') {
+      return { kind: 'text', text: raw.text, raw };
     }
+    
+    return { kind: 'raw', raw };
+  }
 
-    frameSpec += " AND ";
-
-    if (w.frameEnd === "N PRECEDING") {
-      frameSpec += `${w.frameEndValue || 1} PRECEDING`;
-    } else if (w.frameEnd === "N FOLLOWING") {
-      frameSpec += `${w.frameEndValue || 1} FOLLOWING`;
-    } else {
-      frameSpec += w.frameEnd;
+  if (Array.isArray(raw)) {
+    // Handle array of objects as table
+    if (raw.length > 0 && typeof raw[0] === 'object') {
+      const columns = Object.keys(raw[0]);
+      return { kind: 'table', columns, rows: raw, raw };
     }
-
-    expr += frameSpec;
-  }
-
-  expr += ")";
-
-  if (w.alias) {
-    expr += ` AS ${w.alias}`;
-  }
-
-  // Remove trailing comment to avoid SQL syntax errors
-
-  return expr;
-};
-
-/* ----------------- Join Builder ----------------- */
-const JoinBuilder = ({ selectedTables, tableColumnsMap, joins, setJoins, baseTable, setBaseTable }) => {
-  const tableOptions = selectedTables.map((t) => ({ label: t, value: t }));
-  const joinTypes = ["INNER", "LEFT", "RIGHT", "FULL"];
-
-  const addJoin = () => {
-    const candidates = selectedTables.filter((t) => t !== baseTable);
-    const rightTable = candidates[candidates.length - 1] || selectedTables[1] || "";
-    setJoins((prev) => [
-      ...prev,
-      {
-        type: "INNER",
-        leftTable: baseTable || selectedTables[0] || "",
-        leftColumn: "",
-        rightTable: rightTable || "",
-        rightColumn: "",
-      },
-    ]);
-  };
-
-  const updateJoin = (idx, patch) => {
-    setJoins((prev) => {
-      const arr = [...prev];
-      arr[idx] = { ...arr[idx], ...patch };
-      if (patch.leftTable) arr[idx].leftColumn = "";
-      if (patch.rightTable) arr[idx].rightColumn = "";
-      return arr;
-    });
-  };
-
-  const removeJoin = (idx) => setJoins((prev) => prev.filter((_, i) => i !== idx));
-
-  const columnsFor = (table) => tableColumnsMap[table] || [];
-
-  return (
-    <div style={{ padding: 15, border: "1px solid #ddd", borderRadius: 8 }}>
-      <h4>Tables & Joins</h4>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>
-        <div>
-          <label style={{ fontWeight: 600 }}>Selected Tables</label>
-          <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
-            {selectedTables.length ? selectedTables.join(", ") : "None"}
-          </div>
-        </div>
-        <div>
-          <label style={{ fontWeight: 600 }}>Base Table</label>
-          <SingleSelectCombobox
-            options={tableOptions}
-            value={baseTable}
-            onChange={setBaseTable}
-            placeholder="Pick base table"
-          />
-        </div>
-      </div>
-
-      <div style={{ marginTop: 12 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <label style={{ fontWeight: 600 }}>Joins</label>
-          <button
-            onClick={addJoin}
-            disabled={!baseTable || selectedTables.length < 2}
-            style={{
-              padding: "6px 12px",
-              backgroundColor: !baseTable || selectedTables.length < 2 ? "#6c757d" : "#28a745",
-              color: "#fff",
-              border: 0,
-              borderRadius: 4,
-              cursor: !baseTable || selectedTables.length < 2 ? "not-allowed" : "pointer",
-            }}
-          >
-            + Add Join
-          </button>
-        </div>
-
-        {joins.length === 0 ? (
-          <div style={{ marginTop: 8, color: "#666", fontStyle: "italic" }}>
-            No joins added. If you select multiple tables, add at least one join.
-          </div>
-        ) : (
-          joins.map((j, idx) => (
-            <div
-              key={`join-${idx}`}
-              style={{
-                marginTop: 10,
-                padding: 10,
-                border: "1px solid #eee",
-                borderRadius: 6,
-                background: "#fafafa",
-              }}
-            >
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto", gap: 8, alignItems: "center" }}>
-                <select
-                  value={j.type}
-                  onChange={(e) => updateJoin(idx, { type: e.target.value })}
-                  style={{ padding: 6, border: "1px solid #ddd", borderRadius: 6 }}
-                >
-                  {joinTypes.map((t) => (
-                    <option key={t} value={t}>{t} JOIN</option>
-                  ))}
-                </select>
-
-                <SingleSelectCombobox
-                  options={tableOptions}
-                  value={j.leftTable}
-                  onChange={(v) => updateJoin(idx, { leftTable: v })}
-                  placeholder="Left table"
-                />
-                <SingleSelectCombobox
-                  options={(columnsFor(j.leftTable) || []).map((c) => ({ label: c, value: c }))}
-                  value={j.leftColumn}
-                  onChange={(v) => updateJoin(idx, { leftColumn: v })}
-                  placeholder="Left column"
-                />
-
-                <SingleSelectCombobox
-                  options={tableOptions}
-                  value={j.rightTable}
-                  onChange={(v) => updateJoin(idx, { rightTable: v })}
-                  placeholder="Right table"
-                />
-                <SingleSelectCombobox
-                  options={(columnsFor(j.rightTable) || []).map((c) => ({ label: c, value: c }))}
-                  value={j.rightColumn}
-                  onChange={(v) => updateJoin(idx, { rightColumn: v })}
-                  placeholder="Right column"
-                />
-
-                <button
-                  onClick={() => removeJoin(idx)}
-                  style={{ marginLeft: 8, color: "#fff", background: "#dc3545", border: 0, borderRadius: 4, padding: "6px 10px" }}
-                >
-                  Remove
-                </button>
-              </div>
-              <div style={{ marginTop: 6, fontSize: 12, color: "#555" }}>
-                ON {j.leftTable && j.leftColumn ? `\`${j.leftTable}\`.\`${j.leftColumn}\`` : "(left)"} = {j.rightTable && j.rightColumn ? `\`${j.rightTable}\`.\`${j.rightColumn}\`` : "(right)"}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
-};
-
-/* ----------------- Multi-Level Nested Query Builder ----------------- */
-const MultiLevelNestedQueryBuilder = ({ queryConfig, onChange, dimensionFields, measureFields, selectedTables, baseTable }) => {
-  const defaultCfg = {
-    levels: [
-      {
-        id: 1,
-        name: "Base Query",
-        select: [],
-        from: "",
-        where: [],
-        groupBy: [],
-        having: [],
-        orderBy: [],
-        limit: 100,
-        isSubquery: false,
-        windows: [],
+    
+    // Handle flat array
+    if (raw.length > 0 && (typeof raw[0] === 'string' || typeof raw[0] === 'number')) {
+      return { kind: 'table', columns: ['value'], rows: raw.map(r => ({ value: r })), raw };
+    }
+    
+    // Handle array of simple values as chart
+    const data = raw.map((item: any, index: number) => {
+      if (typeof item === 'object') {
+        const label = item.label ?? item.name ?? item.id ?? item.key ?? '';
+        const value = Number(item.value ?? item.count ?? item.total ?? 0);
+        return { label: String(label), value };
       }
-    ],
-    activeLevel: 1,
-  };
-
-  const [cfg, setCfg] = useState(queryConfig || defaultCfg);
-
-  useEffect(() => onChange(cfg), [cfg, onChange]);
-
-  // Clean invalid references when fields change
-  useEffect(() => {
-    const allFields = [...new Set([...dimensionFields, ...measureFields])];
-    setCfg(prev => ({
-      ...prev,
-      levels: prev.levels.map(level => ({
-        ...level,
-        select: level.select.filter(field => allFields.includes(field)),
-        groupBy: level.groupBy.filter(field => dimensionFields.includes(field)),
-        orderBy: level.orderBy.filter(order => allFields.includes(order.field)),
-        windows: (level.windows || []).filter(w => {
-          // Keep only if target (when required) still exists and all partition/order fields exist
-          const targetOk = !w.targetField || allFields.includes(w.targetField);
-          const partsOk = (w.partitionBy || []).every(f => allFields.includes(f));
-          const ordersOk = (w.orderBy || []).every(o => allFields.includes(o.field));
-          const lodOk = (w.lodFields || []).every(f => dimensionFields.includes(f));
-          return targetOk && partsOk && ordersOk && lodOk;
-        })
-      }))
-    }));
-  }, [dimensionFields, measureFields]);
-
-  const set = (patch) => setCfg((prev) => ({ ...prev, ...patch }));
-  const allFields = [...new Set([...dimensionFields, ...measureFields])];
-
-  const updateLevel = (levelId, patch) => {
-    setCfg(prev => ({
-      ...prev,
-      levels: prev.levels.map(level =>
-        level.id === levelId ? { ...level, ...patch } : level
-      )
-    }));
-  };
-
-  const addLevel = () => {
-    const newId = Math.max(...cfg.levels.map(l => l.id)) + 1;
-    setCfg(prev => ({
-      ...prev,
-      levels: [...prev.levels, {
-        id: newId,
-        name: `Level ${newId}`,
-        select: [],
-        from: `(SELECT * FROM level_${newId - 1})`,
-        where: [],
-        groupBy: [],
-        having: [],
-        orderBy: [],
-        limit: 100,
-        isSubquery: true,
-        windows: [],
-      }],
-      activeLevel: newId,
-    }));
-  };
-
-  const removeLevel = (levelId) => {
-    if (cfg.levels.length <= 1) return;
-    setCfg(prev => ({
-      ...prev,
-      levels: prev.levels.filter(l => l.id !== levelId),
-      activeLevel: prev.activeLevel === levelId ? prev.levels[0].id : prev.activeLevel,
-    }));
-  };
-
-  const toggleInArray = (levelId, key, value) => {
-    const level = cfg.levels.find(l => l.id === levelId);
-    if (!level) return;
-    const newArray = level[key].includes(value)
-      ? level[key].filter(v => v !== value)
-      : [...level[key], value];
-    updateLevel(levelId, { [key]: newArray });
-  };
-
-  const addCondition = (levelId, key) => {
-    const level = cfg.levels.find(l => l.id === levelId);
-    if (!level) return;
-    updateLevel(levelId, { [key]: [...level[key], ""] });
-  };
-
-  const updateCondition = (levelId, key, idx, val) => {
-    const level = cfg.levels.find(l => l.id === levelId);
-    if (!level) return;
-    const arr = [...level[key]];
-    arr[idx] = val;
-    updateLevel(levelId, { [key]: arr });
-  };
-
-  const removeCondition = (levelId, key, idx) => {
-    const level = cfg.levels.find(l => l.id === levelId);
-    if (!level) return;
-    const arr = [...level[key]];
-    arr.splice(idx, 1);
-    updateLevel(levelId, { [key]: arr });
-  };
-
-  const addOrderBy = (levelId) => {
-    const level = cfg.levels.find(l => l.id === levelId);
-    if (!level) return;
-    updateLevel(levelId, {
-      orderBy: [...level.orderBy, { field: "", direction: "ASC" }]
+      return { label: `Item ${index}`, value: Number(item) };
     });
-  };
+    return { kind: 'chart', data, max: undefined, raw };
+  }
 
-  const updateOrderBy = (levelId, idx, patch) => {
-    const level = cfg.levels.find(l => l.id === levelId);
-    if (!level) return;
-    const arr = [...level.orderBy];
-    arr[idx] = { ...arr[idx], ...patch };
-    updateLevel(levelId, { orderBy: arr });
-  };
+  // Handle primitive values as KPI
+  if (typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean') {
+    return { kind: 'kpi', value: raw, raw };
+  }
 
-  const removeOrderBy = (levelId, idx) => {
-    const level = cfg.levels.find(l => l.id === levelId);
-    if (!level) return;
-    const arr = [...level.orderBy];
-    arr.splice(idx, 1);
-    updateLevel(levelId, { orderBy: arr });
-  };
+  return { kind: 'raw', raw };
+}
 
-  const addWindow = (levelId) => {
-    const level = cfg.levels.find(l => l.id === levelId);
-    if (!level) return;
-    updateLevel(levelId, {
-      windows: [...(level.windows || []), {
-        direction: "Window Down",
-        functionCategory: "Aggregate",
-        fn: "SUM",
-        targetField: "",
-        partitionBy: [],
-        orderBy: [],
-        frameType: "ROWS",
-        frameStart: "UNBOUNDED PRECEDING",
-        frameEnd: "CURRENT ROW",
-        lodScope: "INCLUDE",
-        lodFields: [],
-        alias: ""
-      }]
-    });
-  };
+/* -------------------- Presentational components -------------------- */
 
-  const updateWindow = (levelId, windowIdx, patch) => {
-    const level = cfg.levels.find(l => l.id === levelId);
-    if (!level) return;
-    const windows = [...(level.windows || [])];
-    windows[windowIdx] = { ...windows[windowIdx], ...patch };
-    updateLevel(levelId, { windows });
-  };
-
-  const removeWindow = (levelId, windowIdx) => {
-    const level = cfg.levels.find(l => l.id === levelId);
-    if (!level) return;
-    const windows = [...(level.windows || [])];
-    windows.splice(windowIdx, 1);
-    updateLevel(levelId, { windows });
-  };
-
-  const activeLevel = cfg.levels.find(l => l.id === cfg.activeLevel) || cfg.levels[0];
-
-  const resetBuilder = () => {
-    setCfg(defaultCfg);
-  };
-
-  const renderLevelBuilder = (level) => (
-    <div key={level.id} style={{
-      marginTop: 15,
-      padding: 15,
-      border: level.id === cfg.activeLevel ? "2px solid #007bff" : "1px solid #ddd",
-      borderRadius: 8,
-      backgroundColor: level.id === cfg.activeLevel ? "#f8f9ff" : "#fff"
-    }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <h5 style={{ margin: 0 }}>
-          {level.name} {level.isSubquery && "(Subquery)"}
-        </h5>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
-            onClick={() => set({ activeLevel: level.id })}
-            style={{
-              padding: "4px 8px",
-              backgroundColor: level.id === cfg.activeLevel ? "#007bff" : "#6c757d",
-              color: "white",
-              border: "none",
-              borderRadius: 4,
-              fontSize: 12,
-            }}
-          >
-            {level.id === cfg.activeLevel ? "Active" : "Select"}
-          </button>
-          {cfg.levels.length > 1 && (
-            <button
-              onClick={() => removeLevel(level.id)}
-              style={{
-                padding: "4px 8px",
-                backgroundColor: "#dc3545",
-                color: "white",
-                border: "none",
-                borderRadius: 4,
-                fontSize: 12,
-              }}
-            >
-              Remove
-            </button>
-          )}
-        </div>
+const DashboardCard: React.FC<{ dashboard: Dashboard; onSelect: () => void; isSelected: boolean }> = ({ dashboard, onSelect, isSelected }) => (
+  <div 
+    className={`bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-md transition-shadow ${isSelected ? 'ring-2 ring-blue-500 border-2 border-blue-500' : ''}`} 
+    onClick={onSelect}
+  >
+    <div className="flex justify-between items-start">
+      <div>
+        <h3 className="font-semibold text-lg">{dashboard.name}</h3>
+        <p className="text-gray-600 text-sm mt-1">{dashboard.description}</p>
       </div>
-
-      {level.id === cfg.activeLevel && (
-        <>
-          {level.isSubquery && (
-            <div style={{ marginBottom: 10 }}>
-              <label style={{ fontWeight: 600 }}>FROM (Subquery Reference):</label>
-              <input
-                value={level.from}
-                onChange={(e) => updateLevel(level.id, { from: e.target.value })}
-                placeholder="(SELECT * FROM previous_level)"
-                style={{ width: "100%", padding: 6, border: "1px solid #ddd", borderRadius: 6, marginTop: 4 }}
-              />
-            </div>
-          )}
-
-          {/* SELECT */}
-          <div style={{ marginBottom: 10 }}>
-            <label style={{ fontWeight: 600 }}>Select columns:</label>
-            {allFields.length === 0 ? (
-              <div style={{ color: "#999", fontStyle: "italic", marginTop: 6 }}>
-                No fields available. Please select tables and joins first.
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-                {allFields.map((f) => {
-                  const selected = level.select.includes(f);
-                  return (
-                    <button
-                      key={`sel-${level.id}-${f}`}
-                      onClick={() => toggleInArray(level.id, "select", f)}
-                      style={{
-                        padding: "6px 10px",
-                        borderRadius: 6,
-                        border: selected ? "1px solid #007bff" : "1px solid #ddd",
-                        background: selected ? "#e6f0ff" : "#fff",
-                        cursor: "pointer",
-                        fontSize: 12,
-                      }}
-                    >
-                      {f}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* ADVANCED WINDOW FUNCTIONS */}
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <label style={{ fontWeight: 600 }}>Advanced Window Functions:</label>
-              <button
-                onClick={() => addWindow(level.id)}
-                style={{
-                  padding: "4px 8px",
-                  backgroundColor: "#28a745",
-                  color: "white",
-                  border: "none",
-                  borderRadius: 4,
-                  fontSize: 12,
-                }}
-              >
-                + Add Window Function
-              </button>
-            </div>
-
-            {(level.windows || []).map((w, i) => (
-              <div key={`win-${level.id}-${i}`} style={{ marginBottom: 16 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                  <h6 style={{ margin: 0 }}>Window Function #{i + 1}</h6>
-                  <button
-                    onClick={() => removeWindow(level.id, i)}
-                    style={{
-                      padding: "4px 8px",
-                      backgroundColor: "#dc3545",
-                      color: "white",
-                      border: "none",
-                      borderRadius: 4,
-                      fontSize: 12,
-                    }}
-                  >
-                    Remove
-                  </button>
-                </div>
-                <AdvancedWindowFunctionBuilder
-                  windowConfig={w}
-                  onChange={(newConfig) => updateWindow(level.id, i, newConfig)}
-                  allFields={allFields}
-                  dimensionFields={dimensionFields}
-                  measureFields={measureFields}
-                />
-              </div>
-            ))}
-          </div>
-
-          {/* WHERE */}
-          <div style={{ marginBottom: 10 }}>
-            <label style={{ fontWeight: 600 }}>WHERE conditions:</label>
-            {level.where.map((c, i) => (
-              <div key={`w-${level.id}-${i}`} style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                <input
-                  value={c}
-                  onChange={(e) => updateCondition(level.id, "where", i, e.target.value)}
-                  placeholder={`e.g. \`${(baseTable || "table")}\`.\`id\` = 1`}
-                  style={{ flex: 1, padding: 6, border: "1px solid #ddd", borderRadius: 6, fontSize: 12 }}
-                />
-                <button
-                  onClick={() => removeCondition(level.id, "where", i)}
-                  style={{ color: "red", fontSize: 12, padding: "4px 8px" }}
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-            <button
-              onClick={() => addCondition(level.id, "where")}
-              style={{ marginTop: 6, fontSize: 12, padding: "4px 8px" }}
-            >
-              + Add WHERE
-            </button>
-          </div>
-
-          {/* GROUP BY */}
-          <div style={{ marginBottom: 10 }}>
-            <label style={{ fontWeight: 600 }}>Group by:</label>
-            {dimensionFields.length === 0 ? (
-              <div style={{ color: "#999", fontStyle: "italic", marginTop: 6 }}>
-                No dimension fields available.
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-                {dimensionFields.map((f) => {
-                  const selected = level.groupBy.includes(f);
-                  return (
-                    <button
-                      key={`gb-${level.id}-${f}`}
-                      onClick={() => toggleInArray(level.id, "groupBy", f)}
-                      style={{
-                        padding: "6px 10px",
-                        borderRadius: 6,
-                        border: selected ? "1px solid #007bff" : "1px solid #ddd",
-                        background: selected ? "#e6f0ff" : "#fff",
-                        cursor: "pointer",
-                        fontSize: 12,
-                      }}
-                    >
-                      {f}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* HAVING */}
-          <div style={{ marginBottom: 10 }}>
-            <label style={{ fontWeight: 600 }}>HAVING conditions:</label>
-            {level.having.map((c, i) => (
-              <div key={`h-${level.id}-${i}`} style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                <input
-                  value={c}
-                  onChange={(e) => updateCondition(level.id, "having", i, e.target.value)}
-                  placeholder={`e.g. SUM(\`orders\`.\`total\`) > 1000`}
-                  style={{ flex: 1, padding: 6, border: "1px solid #ddd", borderRadius: 6, fontSize: 12 }}
-                />
-                <button
-                  onClick={() => removeCondition(level.id, "having", i)}
-                  style={{ color: "red", fontSize: 12, padding: "4px 8px" }}
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-            <button
-              onClick={() => addCondition(level.id, "having")}
-              style={{ marginTop: 6, fontSize: 12, padding: "4px 8px" }}
-            >
-              + Add HAVING
-            </button>
-          </div>
-
-          {/* ORDER BY */}
-          <div style={{ marginBottom: 10 }}>
-            <label style={{ fontWeight: 600 }}>ORDER BY:</label>
-            {level.orderBy.map((o, i) => (
-              <div key={`ob-${level.id}-${i}`} style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                <select
-                  value={o.field}
-                  onChange={(e) => updateOrderBy(level.id, i, { field: e.target.value })}
-                  style={{ padding: 6, borderRadius: 6, border: "1px solid #ddd", fontSize: 12 }}
-                >
-                  <option value="">Select field</option>
-                  {allFields.map((f) => (
-                    <option key={`obf-${level.id}-${f}`} value={f}>
-                      {f}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={o.direction || "ASC"}
-                  onChange={(e) => updateOrderBy(level.id, i, { direction: e.target.value })}
-                  style={{ width: 120, padding: 6, borderRadius: 6, border: "1px solid #ddd", fontSize: 12 }}
-                >
-                  <option value="ASC">ASC</option>
-                  <option value="DESC">DESC</option>
-                </select>
-                <button
-                  onClick={() => removeOrderBy(level.id, i)}
-                  style={{ color: "red", fontSize: 12, padding: "4px 8px" }}
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-            <button
-              onClick={() => addOrderBy(level.id)}
-              style={{ marginTop: 6, fontSize: 12, padding: "4px 8px" }}
-            >
-              + Add ORDER BY
-            </button>
-          </div>
-
-          {/* LIMIT */}
-          <div style={{ marginBottom: 10 }}>
-            <label style={{ fontWeight: 600 }}>LIMIT:</label>
-            <input
-              type="number"
-              min={0}
-              value={level.limit ?? 100}
-              onChange={(e) => updateLevel(level.id, { limit: Number(e.target.value) })}
-              style={{ marginLeft: 8, padding: 6, borderRadius: 6, border: "1px solid #ddd", width: 120, fontSize: 12 }}
-            />
-          </div>
-        </>
-      )}
-    </div>
-  );
-
-  return (
-    <div>
-      <div style={{ marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <label style={{ fontWeight: 600 }}>Query Levels ({cfg.levels.length}):</label>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
-            onClick={resetBuilder}
-            style={{
-              padding: "6px 12px",
-              backgroundColor: "#dc3545",
-              color: "white",
-              border: "1px solid #ddd",
-              borderRadius: 4,
-              cursor: "pointer",
-              fontSize: 12,
-            }}
-            title="Reset builder to default"
-          >
-            Clear Builder
-          </button>
-        </div>
-      </div>
-
-      <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-        {cfg.levels.map(level => (
-          <button
-            key={level.id}
-            onClick={() => set({ activeLevel: level.id })}
-            style={{
-              padding: "6px 12px",
-              backgroundColor: level.id === cfg.activeLevel ? "#007bff" : "#f8f9fa",
-              color: level.id === cfg.activeLevel ? "white" : "black",
-              border: "1px solid #ddd",
-              borderRadius: 4,
-              cursor: "pointer",
-              fontSize: 12,
-            }}
-          >
-            {level.name}
-          </button>
-        ))}
-      </div>
-
-      <div style={{ maxHeight: 600, overflowY: "auto" }}>
-        {cfg.levels.map(renderLevelBuilder)}
-      </div>
-
-      <div style={{ marginTop: 12, padding: 10, backgroundColor: "#f8f9fa", borderRadius: 6 }}>
-        <small style={{ color: "#666" }}>
-          <strong>Structure:</strong> {cfg.levels.length} level(s) — Base + {Math.max(0, cfg.levels.length - 1)} nested
-        </small>
-      </div>
-
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 10 }}>
-        <button
-          onClick={addLevel}
-          disabled={allFields.length === 0 || !baseTable}
-          style={{
-            padding: "8px 16px",
-            backgroundColor: (allFields.length === 0 || !baseTable) ? "#6c757d" : "#28a745",
-            color: "white",
-            border: "none",
-            borderRadius: 4,
-            cursor: (allFields.length === 0 || !baseTable) ? "not-allowed" : "pointer",
-          }}
-        >
-          + Add Level
-        </button>
-      </div>
-    </div>
-  );
-};
-
-/* ----------------- SQL Popup ----------------- */
-const SqlPopup = ({ visible, sql, onClose, onExecute }) => {
-  if (!visible) return null;
-
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.5)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 1000,
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{ background: "#fff", padding: 20, borderRadius: 8, width: "800px", maxWidth: "90%", maxHeight: "80vh", overflow: "auto" }}
-      >
-        <h3>Generated Multi-Level Nested SQL</h3>
-        <pre
-          style={{
-            whiteSpace: "pre-wrap",
-            background: "#f6f6f6",
-            padding: 12,
-            borderRadius: 6,
-            maxHeight: 500,
-            overflow: "auto",
-            fontSize: 11,
-            lineHeight: 1.4,
-          }}
-        >
-{sql}
-        </pre>
-        <div style={{ display: "flex", gap: 10, marginTop: 15 }}>
-          <button
-            onClick={() => navigator.clipboard.writeText(sql)}
-            style={{ padding: "8px 16px", background: "#28a745", color: "#fff", borderRadius: 6, border: 0 }}
-          >
-            Copy SQL
-          </button>
-          <button
-            onClick={onExecute}
-            style={{ padding: "8px 16px", background: "#007bff", color: "#fff", borderRadius: 6, border: 0 }}
-          >
-            Execute & Show Results
-          </button>
-          <button onClick={onClose} style={{ padding: "8px 16px", background: "#6c757d", color: "#fff", borderRadius: 6, border: 0 }}>
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-/* ----------------- Utility ----------------- */
-const qid = (id) => `\`${id}\``;
-const qtc = (table, col) => `${qid(table)}.${qid(col)}`;
-
-/* ----------------- DnD Field ----------------- */
-const Field = ({ field }) => {
-  const [{ isDragging }, drag] = useDrag(() => ({
-    type: ItemTypes.FIELD,
-    item: { field },
-    collect: (monitor) => ({ isDragging: !!monitor.isDragging() }),
-  }), [field]);
-
-  return (
-    <div
-      ref={drag}
-      style={{
-        padding: 8,
-        margin: 4,
-        backgroundColor: isDragging ? "#e3f2fd" : "#f5f5f5",
-        border: "1px solid #ddd",
-        borderRadius: 4,
-        cursor: "move",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-      }}
-      title={field.source ? `Source: ${field.source}` : ""}
-    >
-      <span style={{ display: "flex", alignItems: "center" }}>
-        <span style={{ marginRight: 8 }}>{icons[field.type] || "🔹"}</span>
-        <span>{field.name}</span>
-        {field.measureType && (
-          <span style={{ fontSize: "0.8em", color: "#666", marginLeft: 8 }}>({field.measureType})</span>
-        )}
+      <span className={`px-2 py-1 rounded text-xs font-medium ${dashboard.type === 'STANDARD' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
+        {dashboard.type}
       </span>
-      {field.source && <span style={{ fontSize: "0.75em", color: "#888" }}>{field.source}</span>}
     </div>
-  );
-};
+    <div className="mt-3 flex justify-between items-center">
+      <span className="text-xs text-gray-500">
+        {dashboard.created_at ? `Created: ${new Date(dashboard.created_at).toLocaleDateString()}` : ''}
+      </span>
+      {dashboard.is_default && <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs">Default</span>}
+    </div>
+  </div>
+);
 
-/* ----------------- DnD Slot ----------------- */
-const Slot = ({ title, items, onDropField, className, onRemoveField }) => {
-  const [, drop] = useDrop({
-    accept: ItemTypes.FIELD,
-    drop: (item) => {
-      if (!items.find((f) => f.name === item.field.name)) onDropField(item.field);
-    },
-  }, [items, onDropField]);
+/* KPI Presentation UI (used for preview and actual widget) */
+const KPIView: React.FC<{ k: NormalizedKPI; small?: boolean }> = ({ k, small = false }) => {
+  const valueDisplay = k.value ?? '-';
+  const trend = k.trend;
+  let trendNumber: number | null = null;
+  if (typeof trend === 'number') trendNumber = trend;
+  else if (typeof trend === 'string') {
+    const parsed = Number(String(trend).replace(/[^\d.-]/g,''));
+    if (!isNaN(parsed)) trendNumber = parsed;
+  }
+  let dir = k.trend_direction;
+  if (!dir && trendNumber !== null) dir = trendNumber > 0 ? 'up' : trendNumber < 0 ? 'down' : 'flat';
+
+  const trendColor = dir === 'up' ? 'text-green-600' : dir === 'down' ? 'text-red-600' : 'text-gray-500';
+  const arrow = dir === 'up' ? '▲' : dir === 'down' ? '▼' : '–';
 
   return (
-    <div
-      ref={drop}
-      className={className || ""}
-      style={{
-        minHeight: 90,
-        padding: 10,
-        margin: 10,
-        border: "2px dashed #ddd",
-        borderRadius: 8,
-        backgroundColor: "#fafafa",
-      }}
-    >
-      <div style={{ fontWeight: "bold", marginBottom: 10 }}>{title}</div>
-      {items.length === 0 ? (
-        <div style={{ color: "#999", fontStyle: "italic" }}>Drop fields here</div>
-      ) : (
-        items.map((field, idx) => (
-          <div
-            key={`${field.name}-${field.source || "local"}-${idx}`}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: 6,
-              margin: "4px 0",
-              backgroundColor: "white",
-              border: "1px solid #ddd",
-              borderRadius: 4,
-            }}
-          >
-            <span>{icons[field.type]} {field.name}</span>
-            {onRemoveField && (
-              <button
-                onClick={() => onRemoveField(field)}
-                style={{ background: "transparent", border: "none", color: "red", cursor: "pointer", fontSize: 16 }}
-              >
-                ×
-              </button>
-            )}
-          </div>
-        ))
+    <div className={`flex flex-col ${small ? 'text-sm' : ''}`}>
+      <div className="flex items-baseline gap-3">
+        <div className={`${small ? 'text-2xl font-semibold' : 'text-3xl font-bold'}`}>{valueDisplay}{k.unit ? ` ${k.unit}` : ''}</div>
+        {trend !== undefined && <div className={`flex items-center ${trendColor} text-sm`}>{arrow} <span className="ml-1">{String(trend)}</span></div>}
+      </div>
+      {k.description && <div className="text-xs text-gray-500 mt-1">{k.description}</div>}
+      {k.previous !== undefined && k.previous !== null && <div className="text-xs text-gray-400 mt-1">Previous: {k.previous}</div>}
+      {k.metrics && Object.keys(k.metrics).length > 0 && (
+        <div className="mt-2 flex gap-3 flex-wrap">
+          {Object.entries(k.metrics).map(([key, val]) => (
+            <div key={key} className="text-xs bg-gray-100 px-2 py-1 rounded">
+              <strong className="mr-1">{key}</strong>{val}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
 };
 
-/* ----------------- Helper: Quarter extraction ----------------- */
-const extractQuarterLabel = (value) => {
-  // Accepts "YYYY-MM-DD", Date objects, or already quarter strings like "Q1 2023" or "2023-Q1"
-  if (!value && value !== 0) return "";
-  // If it's already like Q1/ Q2 etc
-  const s = String(value);
-  if (/Q[1-4]/i.test(s)) {
-    // Try to standardize "Q1 2023" or "2023-Q1" -> "Q1 2023"
-    const matchYear = s.match(/(20\d{2})/);
-    const matchQ = s.match(/(Q[1-4])/i);
-    return `${matchQ ? matchQ[0].toUpperCase() : "Q1"}${matchYear ? ` ${matchYear[0]}` : ""}`.trim();
-  }
-  // Try parse date
-  const d = new Date(s);
-  if (!isNaN(d)) {
-    const month = d.getMonth(); // 0-based
-    const quarter = Math.floor(month / 3) + 1;
-    const year = d.getFullYear();
-    return `Q${quarter} ${year}`;
-  }
-  // fallback: return original string
-  return s;
-};
+const WidgetComponent: React.FC<{ widget: Widget; dataSource?: DataSource; apiData?: any; isLoading?: boolean; error?: string }> = ({ widget, dataSource, apiData, isLoading, error }) => {
+  const cfg = widget.config_json || {};
+  const normalized: NormalizedResponse | null = apiData?.normalized ?? (apiData ? normalizeApiResponse(apiData) : null);
 
-/* ----------------- Graphlet Collection (Small Multiples) ----------------- */
-const GraphletCollection = ({ chartType, data, partitionKey, xKey, yKey, apiData = [], calcConfig }) => {
-  const chartData = apiData.length > 0 ? apiData : data;
+  // Chart configuration (from widget config_json.chart_config)
+  const chartCfg: any = (cfg.chart_config && typeof cfg.chart_config === 'object') ? cfg.chart_config : {};
 
-  // Helper function to group data by partition key
-  const groupBy = (array, keyFn) => {
-    return array.reduce((groups, item) => {
-      const key = typeof keyFn === 'function' ? keyFn(item) : item[keyFn];
-      if (!groups[key]) {
-        groups[key] = [];
-      }
-      groups[key].push(item);
-      return groups;
-    }, {});
-  };
+  // Default chart config
+  const colors: string[] = chartCfg.series_colors ?? chartCfg.colors ?? ['hsl(220 80% 55%)', 'hsl(200 70% 50%)', 'hsl(140 60% 45%)', 'hsl(45 85% 55%)'];
+  const barColor = chartCfg.bar_color ?? colors[0];
+  const showAxes = chartCfg.show_axes !== undefined ? Boolean(chartCfg.show_axes) : true;
+  const xAxisLabel = chartCfg.x_axis_label ?? '';
+  const yAxisLabel = chartCfg.y_axis_label ?? '';
+  const yTicks = Math.max(2, Number(chartCfg.y_ticks ?? 5));
+  const showLegend = chartCfg.show_legend !== undefined ? Boolean(chartCfg.show_legend) : true;
+  const showValuesOnBars = chartCfg.show_values_on_bars !== undefined ? Boolean(chartCfg.show_values_on_bars) : false;
+  const pieShowLabels = chartCfg.pie?.show_labels_on_pie ?? true;
+  const lineStrokeWidth = Number(chartCfg.line?.strokeWidth ?? 2);
+  const pointRadius = Number(chartCfg.line?.pointRadius ?? 2);
 
-  // If no partitionKey specified, render single chart
-  if (!partitionKey || !chartData || chartData.length === 0) {
+  // Helper function to render trend indicator
+  const renderTrend = (trend?: number | string, trend_direction?: 'up' | 'down' | 'flat') => {
+    if (trend === undefined || trend === null) return null;
+
+    let trendNumber: number | null = null;
+    if (typeof trend === 'number') trendNumber = trend;
+    else if (typeof trend === 'string') {
+      const parsed = Number(String(trend).replace(/[^\d.-]/g, ''));
+      if (!isNaN(parsed)) trendNumber = parsed;
+    }
+
+    let dir = trend_direction;
+    if (!dir && trendNumber !== null) dir = trendNumber > 0 ? 'up' : trendNumber < 0 ? 'down' : 'flat';
+
+    const trendColor = dir === 'up' ? 'text-green-600' : dir === 'down' ? 'text-red-600' : 'text-gray-500';
+    const arrow = dir === 'up' ? '▲' : dir === 'down' ? '▼' : '–';
+
     return (
-      <div style={{ padding: 10 }}>
-        <ChartRenderer chartType={chartType} data={chartData} xKey={xKey} yKey={yKey} apiData={apiData} calcConfig={calcConfig} />
+      <div className={`flex items-center ${trendColor} text-sm ml-2`}>
+        {arrow} <span className="ml-1">{String(trend)}</span>
       </div>
     );
-  }
+  };
 
-  const groups = groupBy(chartData, partitionKey);
-
-  return (
-    <div style={{
-      display: "grid",
-      gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
-      gap: 20,
-      padding: 10
-    }}>
-      {Object.entries(groups).map(([val, subset]) => (
-        <div key={val} style={{
-          border: "1px solid #ddd",
-          padding: 10,
-          borderRadius: 8,
-          backgroundColor: "#fff"
-        }}>
-          <h4 style={{
-            margin: "0 0 10px 0",
-            fontSize: 14,
-            fontWeight: 600,
-            color: "#333",
-            textAlign: "center",
-            borderBottom: "1px solid #eee",
-            paddingBottom: 8
-          }}>
-            {partitionKey}: {val}
-          </h4>
-          <ChartRenderer
-            chartType={chartType}
-            data={subset}
-            xKey={xKey}
-            yKey={yKey}
-            apiData={[]}
-            calcConfig={calcConfig}
-          />
-        </div>
-      ))}
-    </div>
-  );
-};
-
-/* ----------------- Chart Renderer ----------------- */
-const ChartRenderer = ({ chartType, data, xKey, yKey, apiData = [], calcConfig = {} }) => {
-  const chartData = apiData.length > 0 ? apiData : data;
-
-  if (chartType === "table") {
-    if (!chartData || chartData.length === 0) {
+  const renderWidgetContent = () => {
+    if (isLoading) {
       return (
-        <div style={{ padding: 40, textAlign: "center", color: "#666", border: "2px dashed #ddd", borderRadius: 8 }}>
-          No data to display
+        <div className="p-4 flex items-center justify-center h-full">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
         </div>
       );
     }
-    return (
-      <div style={{ width: "100%", overflowX: "auto" }}>
-        <table style={{ minWidth: "100%", backgroundColor: "white", border: "1px solid #ddd", borderCollapse: "collapse" }}>
-          <thead style={{ backgroundColor: "#f8f9fa" }}>
+
+    if (error) {
+      return (
+        <div className="p-4">
+          <h4 className="text-lg font-semibold">{widget.title}</h4>
+          <div className="mt-2 text-red-600 text-sm">Error loading data: {error}</div>
+        </div>
+      );
+    }
+
+    // KPI
+    if (widget.visual_type === 'KPI') {
+      if (normalized && normalized.kind === 'kpi') {
+        return (
+          <div className="p-4">
+            <div className="flex items-center">
+              <h4 className="text-lg font-semibold">{widget.title}</h4>
+              {renderTrend(normalized.trend, normalized.trend_direction)}
+            </div>
+            <div className="mt-2">
+              <KPIView k={normalized} />
+            </div>
+          </div>
+        );
+      }
+      const kpiValue = apiData?.value ?? cfg.value ?? '-';
+      const kpiTrend = apiData?.trend ?? cfg.trend;
+      const kpiTrendDir = apiData?.trend_direction ?? cfg.trend_direction;
+      return (
+        <div className="p-4">
+          <div className="flex items-center">
+            <h4 className="text-lg font-semibold">{widget.title}</h4>
+            {renderTrend(kpiTrend, kpiTrendDir)}
+          </div>
+          <div className="mt-2">
+            <p className="text-3xl font-bold">{kpiValue}</p>
+            {kpiTrend && <p className="text-green-600 text-sm mt-1">{kpiTrend}</p>}
+          </div>
+        </div>
+      );
+    }
+
+    // Chart
+    if (widget.visual_type === 'CHART') {
+      const chartNormalized = normalized && normalized.kind === 'chart' ? normalized : (apiData?.normalized && apiData.normalized.kind === 'chart' ? apiData.normalized : null);
+      const chartData = chartNormalized ? chartNormalized.data : (apiData?.data ?? cfg.data ?? []);
+      const maxValue = (chartNormalized && chartNormalized.max) ?? apiData?.max ?? cfg.max ?? (chartData.length ? Math.max(...chartData.map((x: any) => Number(x.value || 0))) : 100);
+
+      if (!chartData || chartData.length === 0) {
+        return (
+          <div className="p-4">
+            <h4 className="text-lg font-semibold">{widget.title}</h4>
+            <div className="mt-4 text-gray-500">No data available</div>
+          </div>
+        );
+      }
+
+      // Extract trend info from config or normalized raw data
+      const trendValue = cfg.trend ?? chartNormalized?.raw?.trend;
+      const trendDirection = cfg.trend_direction ?? chartNormalized?.raw?.trend_direction;
+
+      /* ---------------- PIE ---------------- */
+      if (widget.chart_type === 'PIE') {
+        const total = chartData.reduce((s: number, it: any) => s + Math.max(0, Number(it.value || 0)), 0);
+        if (total <= 0) {
+          return (
+            <div className="p-4">
+              <h4 className="text-lg font-semibold">{widget.title}</h4>
+              <div className="mt-4 text-gray-500">No data available</div>
+            </div>
+          );
+        }
+
+        // build conic-gradient stops using provided colors
+        let accumDeg = 0;
+        const stops: string[] = chartData.map((item: any, i: number) => {
+          const val = Math.max(0, Number(item.value || 0));
+          const deg = (val / total) * 360;
+          const start = accumDeg;
+          const end = accumDeg + deg;
+          accumDeg += deg;
+          const color = colors[i % colors.length];
+          return `${color} ${start}deg ${end}deg`;
+        });
+
+        const gradient = stops.join(', ');
+
+        return (
+          <div className="p-4">
+            <div className="flex items-center">
+              <h4 className="text-lg font-semibold">{widget.title}</h4>
+              {renderTrend(trendValue, trendDirection)}
+            </div>
+
+            <div className="mt-4 flex flex-col items-center">
+              <div
+                className="relative w-48 h-48 rounded-full"
+                style={{ background: `conic-gradient(${gradient})` }}
+                aria-label={widget.title}
+                title={chartData.map((it: any, idx: number) => `${it.label}: ${it.value}`).join('\n')}
+              >
+                <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-24 h-24 bg-white rounded-full" />
+                {/* optional center label */}
+                {chartCfg.pie?.center_label && (
+                  <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none text-center text-sm text-gray-600">
+                    {chartCfg.pie.center_label}
+                  </div>
+                )}
+              </div>
+
+              {showLegend && (
+                <div className="mt-3 flex flex-wrap gap-3 justify-center text-xs">
+                  {chartData.map((item: any, i: number) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span
+                        className="inline-block w-3 h-3 rounded"
+                        style={{ backgroundColor: colors[i % colors.length] }}
+                      />
+                      <span>{item.label}{pieShowLabels ? ` (${item.value})` : ''}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {dataSource && <div className="mt-2 text-xs text-gray-500">Source: {dataSource.name}</div>}
+          </div>
+        );
+      }
+
+      /* ---------------- LINE ---------------- */
+      if (widget.chart_type === 'LINE') {
+        // Prepare SVG points scaling
+        const len = chartData.length;
+        const points = chartData.map((item: any, i: number) => {
+          const x = len === 1 ? 50 : (i / (len - 1)) * 100;
+          const y = 100 - ((Number(item.value || 0) / Math.max(1, Number(maxValue))) * 100);
+          return `${x},${y}`;
+        }).join(' ');
+
+        // Axis rendering: ticks on Y
+        const ticks = Array.from({ length: yTicks }, (_, i) => {
+          const v = Math.round((i / (yTicks - 1)) * Number(maxValue));
+          return { pos: 100 - (i / (yTicks - 1)) * 100, value: v };
+        }).reverse();
+
+        const strokeColor = colors[0];
+
+        return (
+          <div className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <h4 className="text-lg font-semibold">{widget.title}</h4>
+                {renderTrend(trendValue, trendDirection)}
+              </div>
+              {showLegend && <div className="text-xs text-gray-500">Series</div>}
+            </div>
+
+            <div className="mt-3 flex">
+              {showAxes && (
+                <div className="w-12 mr-3 flex flex-col justify-between text-xs text-gray-500">
+                  {ticks.map((t, idx) => (
+                    <div key={idx} style={{ transform: 'translateY(6px)' }}>{t.value}</div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex-1">
+                <svg viewBox="0 0 100 100" className="w-full h-48">
+                  {/* optional axis lines */}
+                  {showAxes && <line x1="0" y1="100" x2="100" y2="100" stroke="#e5e7eb" strokeWidth="0.5" />}
+                  <polyline
+                    fill="none"
+                    stroke={strokeColor}
+                    strokeWidth={lineStrokeWidth}
+                    points={points}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                  />
+                  {chartData.map((item: any, i: number) => {
+                    const x = len === 1 ? 50 : (i / (len - 1)) * 100;
+                    const y = 100 - ((Number(item.value || 0) / Math.max(1, Number(maxValue))) * 100);
+                    return <circle key={i} cx={x} cy={y} r={pointRadius} fill={colors[i % colors.length]} />;
+                  })}
+                </svg>
+
+                {xAxisLabel && <div className="text-xs text-center text-gray-500 mt-1">{xAxisLabel}</div>}
+              </div>
+            </div>
+
+            {dataSource && <div className="mt-2 text-xs text-gray-500">Source: {dataSource.name}</div>}
+          </div>
+        );
+      }
+
+      /* ---------------- BAR ---------------- */
+      // Prepare Y ticks
+      const ticks = Array.from({ length: yTicks }, (_, i) => {
+        const val = Math.round(((yTicks - 1 - i) / (yTicks - 1)) * Number(maxValue));
+        return val;
+      });
+
+      return (
+        <div className="p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <h4 className="text-lg font-semibold">{widget.title}</h4>
+              {renderTrend(trendValue, trendDirection)}
+            </div>
+            {showLegend && chartCfg.legend_title && <div className="text-xs text-gray-500">{chartCfg.legend_title}</div>}
+          </div>
+
+          <div className="mt-3 flex">
+            {showAxes && (
+              <div className="w-12 pr-2 flex flex-col justify-between text-xs text-gray-500">
+                {ticks.map((t, idx) => (
+                  <div key={idx} className="text-right" style={{ lineHeight: 1 }}>{t}</div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex-1 h-48 flex items-end space-x-2">
+              {chartData.map((item: any, index: number) => {
+                const rawVal = Number(item.value ?? 0);
+                const safeMax = (typeof maxValue === 'number' && maxValue > 0) ? Number(maxValue) : 1;
+                const pct = ((rawVal / safeMax) * 100) || 0;
+                const visiblePct = Math.max(2, Math.min(100, pct)); // min 2% for very small values
+                const color = (chartCfg.series_colors && chartCfg.series_colors[index]) ? chartCfg.series_colors[index] : barColor;
+
+                return (
+                  <div key={index} className="flex flex-col items-center flex-1 h-full">
+                    <div className="w-full flex-1 flex items-end">
+                      <div
+                        className="w-full rounded-t transition-colors"
+                        style={{ height: `${visiblePct}%`, backgroundColor: color }}
+                        title={`${item.label}: ${item.value}`}
+                      >
+                        {/* show value on the bar */}
+                        {showValuesOnBars && (
+                          <div className="text-[10px] text-white text-center" style={{ transform: 'translateY(-100%)' }}>{String(item.value)}</div>
+                        )}
+                      </div>
+                    </div>
+                    <span className="text-xs mt-1 truncate text-center" style={{ maxWidth: '100%' }}>{item.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Axis labels */}
+          <div className="mt-2 flex justify-between items-center">
+            <div className="text-xs text-gray-500">{yAxisLabel}</div>
+            <div className="text-xs text-gray-500">{xAxisLabel}</div>
+          </div>
+
+          {dataSource && <div className="mt-2 text-xs text-gray-500">Source: {dataSource.name}</div>}
+        </div>
+      );
+    }
+
+    // Table
+    // Inside WidgetComponent renderWidgetContent()
+
+// TABLE
+if (widget.visual_type === 'TABLE') {
+  const t = normalized && normalized.kind === 'table' ? normalized : (apiData?.normalized && apiData.normalized.kind === 'table' ? apiData.normalized : null);
+  const tableColumns = t ? t.columns : (apiData?.columns ?? cfg.columns ?? ['Column']);
+  const tableRows = t ? t.rows : (apiData?.rows ?? cfg.rows ?? []);
+
+  // --- Sorting & Pagination State ---
+  const [sortConfig, setSortConfig] = React.useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const rowsPerPage = 5; // adjust as needed
+
+  // Apply sorting
+  const sortedRows = React.useMemo(() => {
+    if (!sortConfig) return tableRows;
+    return [...tableRows].sort((a, b) => {
+      const aValue = a[sortConfig.key];
+      const bValue = b[sortConfig.key];
+      if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [tableRows, sortConfig]);
+
+  // Apply pagination
+  const paginatedRows = React.useMemo(() => {
+    const start = (currentPage - 1) * rowsPerPage;
+    return sortedRows.slice(start, start + rowsPerPage);
+  }, [sortedRows, currentPage]);
+
+  const totalPages = Math.ceil(sortedRows.length / rowsPerPage);
+
+  const requestSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  return (
+    <div className="p-4">
+      <h4 className="text-lg font-semibold">{widget.title}</h4>
+      <div className="mt-2 overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
             <tr>
-              {Object.keys(chartData[0] || {}).map((key) => (
-                <th key={key} style={{ padding: 12, borderBottom: "1px solid #ddd", textAlign: "left", fontSize: 14, fontWeight: 600, color: "#374151" }}>
-                  {key}
+              {tableColumns.map((h: string, i: number) => (
+                <th
+                  key={i}
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => requestSort(h)}
+                >
+                  <div className="flex items-center">
+                    {h}
+                    {sortConfig?.key === h ? (
+                      <span className="ml-1">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                    ) : null}
+                  </div>
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody>
-            {chartData.slice(0, 1000).map((row, index) => (
-              <tr key={index} style={{ backgroundColor: index % 2 === 0 ? "#f8f9fa" : "white" }}>
-                {Object.keys(chartData[0] || {}).map((key, cellIndex) => (
-                  <td key={cellIndex} style={{ padding: 12, borderBottom: "1px solid #ddd", fontSize: 14, color: "#1f2937" }}>
-                    {row[key]}
-                  </td>
-                ))}
+          <tbody className="bg-white divide-y divide-gray-200">
+            {paginatedRows.length === 0 ? (
+              <tr>
+                <td colSpan={tableColumns.length} className="px-6 py-4 text-center text-gray-500">
+                  No data available
+                </td>
               </tr>
-            ))}
+            ) : (
+              paginatedRows.map((r: any, idx: number) => (
+                <tr key={idx}>
+                  {tableColumns.map((c: string, ci: number) => (
+                    <td key={ci} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {r[c] ?? r[c.toLowerCase()] ?? '-'}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
-    );
-  }
 
-  if (!xKey || !yKey || !chartData || chartData.length === 0) {
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <div className="mt-4 flex justify-between items-center">
+          <div className="text-sm text-gray-600">
+            Page {currentPage} of {totalPages}
+          </div>
+          <div className="flex gap-2">
+            <button
+              className={`px-3 py-1 rounded ${currentPage === 1 ? 'bg-gray-200 cursor-not-allowed' : 'bg-gray-300'}`}
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            >
+              Previous
+            </button>
+            <button
+              className={`px-3 py-1 rounded ${currentPage === totalPages ? 'bg-gray-200 cursor-not-allowed' : 'bg-gray-300'}`}
+              disabled={currentPage === totalPages}
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+    // Text
+   if (widget.visual_type === 'TEXT') {
+  const textContent = normalized && normalized.kind === 'text' ? (normalized as { text: string }).text : (apiData?.text ?? cfg.text ?? '');
+
+  if (!textContent) {
     return (
-      <div style={{ padding: 40, textAlign: "center", color: "#666", border: "2px dashed #ddd", borderRadius: 8 }}>
-        Please drag fields to Columns and Rows to display data
+      <div className="p-4 text-gray-500 italic">
+        <h4 className="text-lg font-semibold">{widget.title}</h4>
+        <div className="mt-2">No text content available</div>
       </div>
     );
   }
 
-  // Process data: aggregate by xKey (Quarter), then apply running total if requested.
-  const processDataForChart = () => {
-    const {
-      calculation = "SUM", // for now SUM
-      cumulative = false,
-      frameType = "EXPANDING", // EXPANDING or FIXED
-      frameSize = 0, // if >0 used for fixed sliding window size (N)
-      direction = "FORWARD", // FORWARD or BACKWARD
-      lodScope = "INCLUDE", // FIXED/INCLUDE/EXCLUDE
-      lodFields = [], // dimensions for LOD
-      originalData = [], // for FIXED LOD use
-    } = calcConfig || {};
+  // If you want to render HTML safely, you can do:
+  return (
+    <div className="p-4">
+      <h4 className="text-lg font-semibold">{widget.title}</h4>
+      <div
+        className="mt-2 text-gray-700 whitespace-pre-wrap"
+        dangerouslySetInnerHTML={{ __html: textContent }}
+      />
+    </div>
+  );
+}
 
-    // Choose data to use depending on LOD
-    const sourceData = (lodScope === "FIXED" && originalData && originalData.length > 0) ? originalData : chartData;
+    // Custom
+   if (widget.visual_type === 'CUSTOM') {
+  return (
+    <div className="p-4">
+      <h4 className="text-lg font-semibold">{widget.title}</h4>
+      <div className="mt-2 text-gray-600 italic">
+        Custom widget content rendering is not implemented yet.
+      </div>
+      <div className="mt-4">
+        <pre className="bg-gray-100 p-2 rounded max-h-48 overflow-auto">
+          {JSON.stringify(apiData ?? cfg, null, 2)}
+        </pre>
+      </div>
+    </div>
+  );
+}
 
-    // Step 1: transform xKey to Quarter label
-    const transformed = sourceData.map((r) => {
-      const xVal = (r[xKey] !== undefined) ? r[xKey] : r[xKey];
-      return {
-        ...r,
-        __quarter__: extractQuarterLabel(xVal),
-        __xRaw__: xVal
-      };
-    }).filter(r => r.__quarter__ !== "");
-
-    // Step 2: aggregate by Quarter label
-    const mapAgg = new Map();
-    transformed.forEach((row) => {
-      const key = row.__quarter__;
-      const val = Number(row[yKey]) || 0;
-      mapAgg.set(key, (mapAgg.get(key) || 0) + val);
-    });
-
-    // Convert to array, but we need chronological order by quarter-year
-    const arr = Array.from(mapAgg.entries()).map(([k, v]) => ({ [xKey]: k, [yKey]: v }));
-
-    // Helper: sort quarter strings like "Q1 2023"
-    const quarterSortKey = (qLabel) => {
-      if (!qLabel) return 0;
-      const m = qLabel.match(/Q([1-4])\s*(20\d{2})?/i);
-      if (m) {
-        const q = Number(m[1]);
-        const y = Number(m[2] || 0);
-        return y * 10 + q;
-      }
-      // fallback: lexicographic
-      return qLabel;
-    };
-
-    arr.sort((a, b) => {
-      const ka = quarterSortKey(a[xKey]);
-      const kb = quarterSortKey(b[xKey]);
-      if (typeof ka === "number" && typeof kb === "number") return ka - kb;
-      return String(ka).localeCompare(String(kb));
-    });
-
-    // Step 3: if not cumulative, simply return aggregated values
-    if (!cumulative) {
-      return arr.map(d => ({ ...d }));
-    }
-
-    // Step 4: cumulative sliding/expanding window
-    const result = [];
-    for (let i = 0; i < arr.length; i++) {
-      let sum = 0;
-      if (frameType === "EXPANDING" || frameSize <= 0) {
-        // expanding window: from start to current (or depending on direction)
-        if (direction === "FORWARD") {
-          for (let j = 0; j <= i; j++) sum += arr[j][yKey];
-        } else {
-          // BACKWARD: accumulation backward in time (subtract forward)
-          for (let j = i; j < arr.length; j++) sum += arr[j][yKey];
-        }
-      } else {
-        // fixed frame size N
-        if (direction === "FORWARD") {
-          const start = Math.max(0, i - (frameSize - 1));
-          for (let j = start; j <= i; j++) sum += arr[j][yKey];
-        } else {
-          // backward-looking fixed: window forward from current to current+N-1
-          const end = Math.min(arr.length - 1, i + (frameSize - 1));
-          for (let j = i; j <= end; j++) sum += arr[j][yKey];
-        }
-      }
-      result.push({ [xKey]: arr[i][xKey], [yKey]: sum });
-    }
-    return result;
-  };
-
-  const processedData = processDataForChart();
-
-  switch (chartType) {
-    case "bar":
-      return (
-        <BarChart width={600} height={300} data={processedData}>
-          <XAxis dataKey={xKey} />
-          <YAxis />
-          <Tooltip />
-          <Legend />
-          <Bar dataKey={yKey} fill="#8884d8" />
-        </BarChart>
-      );
-    case "line":
-      return (
-        <LineChart width={600} height={300} data={processedData}>
-          <XAxis dataKey={xKey} />
-          <YAxis />
-          <Tooltip />
-          <Legend />
-          <Line type="monotone" dataKey={yKey} stroke="#8884d8" />
-        </LineChart>
-      );
-    case "pie":
-      return (
-        <PieChart width={400} height={300}>
-          <Pie data={processedData} dataKey={yKey} nameKey={xKey} cx="50%" cy="50%" outerRadius={80} fill="#8884d8" label>
-            {processedData.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-            ))}
-          </Pie>
-          <Tooltip />
-        </PieChart>
-      );
-    default:
-      return <div>Select a chart type</div>;
-  }
-};
-
-/* ----------------- API Integration (Popup content) ----------------- */
-const APIIntegration = ({
-  selectedTables,
-  setSelectedTables,
-  baseTable,
-  setBaseTable,
-  joinGraph,
-  setJoinGraph,
-  onDataLoad,
-  onTablesLoad,
-  onColumnsMapLoad,
-  apiBase = "https://intelligentsalesman.com/ism1/API/tableu"
-}) => {
-  const [tables, setTables] = useState([]);
-  const [columnsMap, setColumnsMap] = useState({});
-  const [loading, setLoading] = useState(false);
-  const [sqlQuery, setSqlQuery] = useState("");
-
-  useEffect(() => { fetchTables(); // eslint-disable-next-line
-  }, []);
-
-  // Fetch columns for all selected tables
-  useEffect(() => {
-    const run = async () => {
-      const map = {};
-      for (const t of selectedTables) {
-        map[t] = await fetchColumns(t);
-      }
-      setColumnsMap(map);
-      onColumnsMapLoad(map);
-    };
-    if (selectedTables && selectedTables.length) run();
-    else {
-      setColumnsMap({});
-      onColumnsMapLoad({});
-    }
-    // eslint-disable-next-line
-  }, [JSON.stringify(selectedTables)]);
-
-  const fetchTables = async () => {
-    try {
-      const res = await fetch(`${apiBase}/tables.php`);
-      const data = await res.json();
-      const list = data.tables || [];
-      setTables(list);
-      onTablesLoad(list);
-    } catch (e) {
-      const mockTables = ["users", "orders", "products", "categories"];
-      setTables(mockTables);
-      onTablesLoad(mockTables);
-    }
-  };
-
-  const fetchColumns = async (tableName) => {
-    try {
-      const res = await fetch(`${apiBase}/columns.php?table=${encodeURIComponent(tableName)}`);
-      const data = await res.json();
-      return data.columns || [];
-    } catch (e) {
-      const mock = {
-        users: ["id", "name", "email", "created_at", "status"],
-        orders: ["id", "user_id", "total", "status", "created_at"],
-        products: ["id", "name", "price", "category_id", "stock"],
-        categories: ["id", "name", "description"],
-      };
-      return mock[tableName] || [];
-    }
-  };
-
-  const executeQuery = async () => {
-    const query = (sqlQuery || "").replace(/;+\s*$/g, "");
-    if (!query.trim()) {
-      alert("Please enter a SQL query");
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await fetch(`${apiBase}/execute_query.php`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query }),
-      });
-      const data = await res.json();
-      if (data.success) onDataLoad(data.data || []);
-      else alert("Query execution failed: " + data.error);
-    } catch (e) {
-      alert("Error executing query. Check console for details.");
-    }
-    setLoading(false);
+    // default
+    return (
+      <div className="p-4">
+        <h4 className="text-lg font-semibold">{widget.title}</h4>
+        <p className="mt-2 text-gray-600">Widget content for {widget.visual_type}</p>
+      </div>
+    );
   };
 
   return (
-    <div>
-      <div style={{ marginBottom: 10 }}>
-        <label style={{ fontWeight: 600 }}>Select Tables:</label>
-        <div style={{ marginTop: 4 }}>
-          <MultiSelectCombobox
-            options={tables}
-            value={selectedTables}
-            onChange={(vals) => {
-              setSelectedTables(vals);
-              if (vals.length === 1) setBaseTable(vals[0]);
-              if (vals.length === 0) setBaseTable("");
-              setJoinGraph([]);
-            }}
-            placeholder="Choose one or more tables..."
-          />
-        </div>
-      </div>
+    <div className="rounded-lg shadow overflow-hidden" style={{ backgroundColor: widget.background_color || 'white', gridColumn: `span ${Math.max(1, widget.col_span || 1)}`, gridRow: `span ${Math.max(1, widget.row_span || 1)}` }}>
+      {renderWidgetContent()}
+    </div>
+  );
+};
 
-      {selectedTables.length > 0 && (
-        <>
-          <div style={{ marginBottom: 10 }}>
-            <label style={{ fontWeight: 600 }}>Available Columns:</label>
-            <div style={{ fontSize: 12, color: "#444", marginTop: 6 }}>
-              {selectedTables.map((t) => (
-                <div key={`cols-${t}`} style={{ marginTop: 4 }}>
-                  <strong>{t}:</strong> {(columnsMap[t] || []).join(", ")}
-                </div>
-              ))}
-            </div>
+/* --- Modal Components --- */
+
+const DashboardModal: React.FC<{
+  dashboardForm: Partial<Dashboard>;
+  setDashboardForm: React.Dispatch<React.SetStateAction<Partial<Dashboard>>>;
+  widgets: Widget[];
+  openCreateWidgetForSelectedDashboard: () => void;
+  saveDashboard: () => Promise<void>;
+  setShowDashboardModal: React.Dispatch<React.SetStateAction<boolean>>;
+  loadWidgets: (dashboardId?: number) => Promise<void>;
+  loadDashboards: () => Promise<void>;
+}> = ({ 
+  dashboardForm, 
+  setDashboardForm, 
+  widgets, 
+  openCreateWidgetForSelectedDashboard, 
+  saveDashboard, 
+  setShowDashboardModal,
+  loadWidgets,
+  loadDashboards
+}) => {
+  const relatedWidgets = widgets.filter(w => w.dashboard_id === dashboardForm.id);
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-30 flex justify-center items-start z-50 pt-12">
+      <div className="bg-white rounded-lg p-6 w-96 max-h-[80vh] overflow-y-auto">
+        <h2 className="text-xl font-semibold mb-4">{dashboardForm.id ? 'Edit Dashboard' : 'Create Dashboard'}</h2>
+
+        <label className="block mb-1 font-medium">Name</label>
+        <input 
+          type="text" 
+          className="w-full border border-gray-300 rounded px-3 py-2 mb-4" 
+          value={dashboardForm.name ?? ''} 
+          onChange={e => setDashboardForm(prev => ({ ...prev, name: e.target.value }))} 
+        />
+
+        <label className="block mb-1 font-medium">Description</label>
+        <textarea 
+          className="w-full border border-gray-300 rounded px-3 py-2 mb-4" 
+          value={dashboardForm.description ?? ''} 
+          onChange={e => setDashboardForm(prev => ({ ...prev, description: e.target.value }))} 
+        />
+
+        <label className="block mb-1 font-medium">Type</label>
+        <select 
+          className="w-full border border-gray-300 rounded px-3 py-2 mb-4" 
+          value={dashboardForm.type ?? 'STANDARD'} 
+          onChange={e => setDashboardForm(prev => ({ ...prev, type: e.target.value as DashboardType }))}
+        >
+          <option value="BASIC">BASIC</option>
+          <option value="STANDARD">STANDARD</option>
+        </select>
+
+        <div className="mb-4">
+          <h3 className="font-semibold mb-2">Widgets</h3>
+          <div className="flex gap-2 mb-2">
+            <button className="px-3 py-1 bg-blue-600 text-white rounded" onClick={() => {
+              if (!dashboardForm.id) {
+                (async () => {
+                  await saveDashboard();
+                  if (!dashboardForm.id) {
+                    await loadDashboards();
+                  }
+                  openCreateWidgetForSelectedDashboard();
+                })();
+              } else {
+                openCreateWidgetForSelectedDashboard();
+              }
+            }}>Add Widget</button>
+
+            <button className="px-3 py-1 bg-gray-200 rounded" onClick={() => loadWidgets(dashboardForm.id)}>Refresh Widgets</button>
           </div>
 
-          <JoinBuilder
-            selectedTables={selectedTables}
-            tableColumnsMap={columnsMap}
-            joins={joinGraph}
-            setJoins={setJoinGraph}
-            baseTable={baseTable}
-            setBaseTable={setBaseTable}
-          />
-        </>
-      )}
+          <ul className="max-h-40 overflow-y-auto border border-gray-200 rounded p-2">
+            {relatedWidgets.length === 0 && <li className="text-gray-500">No widgets for this dashboard</li>}
+            {relatedWidgets.map(w => (
+              <li key={w.id} className="flex justify-between items-center mb-1">
+                <div>
+                  <strong>{w.title}</strong>
+                  <div className="text-xs text-gray-500">Type: {w.visual_type}{w.chart_type ? ` (${w.chart_type})` : ''}</div>
+                </div>
+                <div className="flex gap-2">
+                  <button className="text-blue-600" onClick={() => { /* hook edit via parent if needed */ }}>Edit</button>
+                  <button className="text-red-600" onClick={() => { /* hook delete via parent if needed */ }}>Delete</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
 
-      <div style={{ marginTop: 12 }}>
-        <label style={{ fontWeight: 600 }}>Custom SQL (optional quick run):</label>
-        <textarea
-          value={sqlQuery}
-          onChange={(e) => setSqlQuery(e.target.value)}
-          placeholder={
-            selectedTables.length
-              ? `SELECT * FROM \`${baseTable || selectedTables[0]}\` LIMIT 100`
-              : "SELECT * FROM table_name LIMIT 100"
-          }
-          style={{ width: "100%", height: 80, padding: 6, borderRadius: 4, marginTop: 4 }}
-        />
-        <button
-          onClick={executeQuery}
-          disabled={loading}
-          style={{
-            marginTop: 8,
-            padding: "8px 12px",
-            backgroundColor: loading ? "#6c757d" : "#28a745",
-            color: "white",
-            border: "none",
-            borderRadius: 4,
-            cursor: loading ? "not-allowed" : "pointer",
-          }}
-        >
-          {loading ? "Executing..." : "Execute Custom SQL"}
-        </button>
+        <div className="flex justify-end gap-2">
+          <button className="px-4 py-2 rounded bg-gray-300" onClick={() => setShowDashboardModal(false)}>Cancel</button>
+          <button className="px-4 py-2 rounded bg-blue-600 text-white" onClick={saveDashboard}>Save</button>
+        </div>
       </div>
     </div>
   );
 };
 
-/* ----------------- Main App ----------------- */
-const App = () => {
-  const [fields, setFields] = useState([]);
-  const [data, setData] = useState([]);
-  const [apiData, setApiData] = useState([]); // original API data (used for FIXED LOD)
-  const [filters, setFilters] = useState([]);
-  const [columnsSlot, setColumnsSlot] = useState([]);
-  const [rows, setRows] = useState([]);
-  const [selectedChart, setSelectedChart] = useState("table");
-  const [partitionKey, setPartitionKey] = useState(""); // Graphlet faceting variable
+const WidgetModal: React.FC<{
+  widgetForm: Partial<Widget>;
+  setWidgetForm: React.Dispatch<React.SetStateAction<Partial<Widget>>>;
+  dataSources: DataSource[];
+  saveWidget: () => Promise<void>;
+  setShowWidgetModal: React.Dispatch<React.SetStateAction<boolean>>;
+  fetchWidgetData: (widget: Widget) => Promise<void>;
+}> = ({ 
+  widgetForm, 
+  setWidgetForm, 
+  dataSources, 
+  saveWidget, 
+  setShowWidgetModal,
+  fetchWidgetData
+}) => {
+  // State for preview data (raw + normalized)
+  const [previewData, setPreviewData] = useState<{ raw?: any; normalized?: NormalizedResponse } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
-  const [availableTables, setAvailableTables] = useState([]);
-  const [tableColumnsMap, setTableColumnsMap] = useState({});
-  const [selectedTables, setSelectedTables] = useState([]);
-  const [baseTable, setBaseTable] = useState("");
-  const [joinGraph, setJoinGraph] = useState([]); // [{type,leftTable,leftColumn,rightTable,rightColumn}]
+  const fetchPreviewData = async () => {
+    if (!widgetForm.data_source_id) return;
+    const ds = dataSources.find(s => s.id === widgetForm.data_source_id);
+    if (!ds) return;
 
-  const [queryConfig, setQueryConfig] = useState(null);
-  const [sqlPopupVisible, setSqlPopupVisible] = useState(false);
-  const [generatedSql, setGeneratedSql] = useState("");
+    setPreviewLoading(true);
+    setPreviewError(null);
+    setPreviewData(null);
 
-  // New: popups for better layout
-  const [showTablesPopup, setShowTablesPopup] = useState(false);
-  const [showQueryPopup, setShowQueryPopup] = useState(false);
-
-  // Calculation config
-  const [calcConfig, setCalcConfig] = useState({
-    calculation: "SUM",
-    cumulative: true,
-    frameType: "EXPANDING", // EXPANDING or FIXED
-    frameSize: 0, // if > 0 used for fixed sliding window size
-    direction: "FORWARD", // FORWARD or BACKWARD
-    lodScope: "INCLUDE", // FIXED/INCLUDE/EXCLUDE
-    lodFields: [], // dimensions for LOD
-  });
-
-  // X and Y fields explicitly selectable (Quarter and measure)
-  const [xField, setXField] = useState(""); // expected to be a date or dimension; will be converted to Quarter if needed
-  const [yField, setYField] = useState(""); // measure field name
-
-  // Load initial mock fields/data
-  useEffect(() => {
-    const mockFields = [
-      { name: "Product", type: "Dimension", source: "mock" },
-      { name: "Region", type: "Dimension", source: "mock" },
-      { name: "Sales", type: "Measure", measureType: "value", source: "mock" },
-      { name: "Quantity", type: "Measure", measureType: "count", source: "mock" },
-      { name: "Date", type: "Dimension", source: "mock" },
-      { name: "Category", type: "Dimension", source: "mock" },
-    ];
-    setFields(mockFields);
-
-    const mockData = [
-      { Product: "A", Region: "North", Category: "Electronics", Sales: 1000, Quantity: 50, Date: "2023-01-01" },
-      { Product: "B", Region: "South", Category: "Electronics", Sales: 1200, Quantity: 60, Date: "2023-04-01" },
-      { Product: "C", Region: "East", Category: "Furniture", Sales: 800, Quantity: 20, Date: "2023-07-01" },
-      { Product: "D", Region: "West", Category: "Furniture", Sales: 950, Quantity: 25, Date: "2023-10-01" },
-      { Product: "A", Region: "North", Category: "Electronics", Sales: 1100, Quantity: 55, Date: "2024-01-01" },
-      { Product: "B", Region: "South", Category: "Electronics", Sales: 1300, Quantity: 62, Date: "2024-04-01" },
-    ];
-    setData(mockData);
-    setApiData(mockData); // store original
-  }, []);
-
-  // Replace fields when selected tables/columns change
-  useEffect(() => {
-    if (selectedTables.length > 0 && Object.keys(tableColumnsMap).length > 0) {
-      const apiFields = selectedTables.flatMap((table) =>
-        (tableColumnsMap[table] || []).map((col) => ({
-          name: `${table}.${col}`,
-          type: isNumericColumn(col) ? "Measure" : "Dimension",
-          measureType: isNumericColumn(col) ? "value" : undefined,
-          source: table,
-        }))
-      );
-
-      setFields(apiFields);
-
-      // KEEP existing filters/columns/rows if they still match the new fields.
-      const newNames = apiFields.map(f => f.name);
-      setFilters(prev => prev.filter(f => newNames.includes(f.name)));
-      setColumnsSlot(prev => prev.filter(f => newNames.includes(f.name)));
-      setRows(prev => prev.filter(f => newNames.includes(f.name)));
-
-      // Auto-select yField if not set and measures exist
-      const measures = apiFields.filter(f => f.type === "Measure").map(f => f.name);
-      if (!yField && measures.length > 0) setYField(measures[0]);
-      // Auto-select xField if not set and dimensions exist
-      const dims = apiFields.filter(f => f.type === "Dimension").map(f => f.name);
-      if (!xField && dims.length > 0) setXField(dims[0]);
-
-    } else if (selectedTables.length === 0) {
-      const mockFields = [
-        { name: "Product", type: "Dimension", source: "mock" },
-        { name: "Region", type: "Dimension", source: "mock" },
-        { name: "Sales", type: "Measure", measureType: "value", source: "mock" },
-        { name: "Quantity", type: "Measure", measureType: "count", source: "mock" },
-        { name: "Date", type: "Dimension", source: "mock" },
-        { name: "Category", type: "Dimension", source: "mock" },
-      ];
-      setFields(mockFields);
-
-      // Keep selections that still exist on mock fields
-      const mockNames = mockFields.map(f => f.name);
-      setFilters(prev => prev.filter(f => mockNames.includes(f.name)));
-      setColumnsSlot(prev => prev.filter(f => mockNames.includes(f.name)));
-      setRows(prev => prev.filter(f => mockNames.includes(f.name)));
-
-      // ensure x/y defaults remain sensible
-      if (!yField) setYField("Sales");
-      if (!xField) setXField("Date");
-    }
-    // eslint-disable-next-line
-  }, [JSON.stringify(selectedTables), JSON.stringify(tableColumnsMap)]);
-
-  const isNumericColumn = (columnName) => {
-    const numericKeywords = ["id", "price", "total", "amount", "quantity", "count", "sales", "revenue", "stock"];
-    return numericKeywords.some((k) => columnName.toLowerCase().includes(k));
-  };
-
-  const handleDataLoad = (newData) => {
-    setApiData(Array.isArray(newData) ? newData : []);
-    setData(Array.isArray(newData) ? newData : []);
-  };
-  const handleTablesLoad = (tables) => setAvailableTables(tables);
-  const handleColumnsMapLoad = (map) => setTableColumnsMap(map);
-
-  const dimensionFields = React.useMemo(
-    () => Array.from(new Set(fields.filter((f) => f.type === "Dimension").map((f) => f.name))),
-    [fields]
-  );
-  const measureFields = React.useMemo(
-    () => Array.from(new Set(fields.filter((f) => f.type === "Measure").map((f) => f.name))),
-    [fields]
-  );
-  const allFieldNames = React.useMemo(() => Array.from(new Set(fields.map((f) => f.name))), [fields]);
-
-  // xKey/yKey derived from state or fallback to selections
-  const xKey = xField || (columnsSlot.find((f) => f.type === "Dimension")?.name) || (rows.find((f) => f.type === "Dimension")?.name) || "";
-  const yKey = yField || (columnsSlot.find((f) => f.type === "Measure")?.name) || (rows.find((f) => f.type === "Measure")?.name) || "";
-  const qid = (id) => `\`${id}\``;
-const qtc = (table, col) => `${qid(table)}.${qid(col)}`;
-
-  /* --------- Build FROM with joins --------- */
-  const buildFromWithJoins = () => {
-  if (!baseTable) return "";
-  let sql = `FROM ${qid(baseTable)}`;
-  for (const j of joinGraph) {
-    if (!j.type || !j.leftTable || !j.leftColumn || !j.rightTable || !j.rightColumn) continue;
-    sql += `\n${j.type} JOIN ${qid(j.rightTable)} ON ${qtc(j.leftTable, j.leftColumn)} = ${qtc(j.rightTable, j.rightColumn)}`;
-  }
-  return sql;
-};
-
-  /* --------- Multi-Level SQL generation (unchanged except minor references) --------- */
-  const buildMultiLevelSQL = (columnsSlot, rows) => {
-  if (!baseTable) {
-    alert("Please select at least one table and set a base table");
-    return "";
-  }
-
-  const cfg = queryConfig || { levels: [] };
-  if (!cfg.levels || cfg.levels.length === 0) {
-    return `SELECT *\n${buildFromWithJoins()}\nLIMIT 100`;
-  }
-
-  const quoteField = (f) => {
-    if (f.includes(".")) {
-      const [t, c] = f.split(".");
-      return qtc(t, c);
-    }
-    return qid(f);
-  };
-
-  const makeWindowExpr = (
-  w,
-  quoteField,
-  dimensionFields = [],
-  columnsSlot = [],
-  rows = []
-) => {
-  const fn = (w.fn || "").toUpperCase();
-  const needsTarget = ["SUM", "AVG", "MIN", "MAX", "COUNT"];
-
-  let expr = fn;
-  if (needsTarget.includes(fn) && w.targetField) {
-    expr += `(${quoteField(w.targetField)})`;
-  } else if (!needsTarget.includes(fn)) {
-    expr += "()";
-  }
-
-  if (w.direction) {
-    expr = `/* ${w.direction} */ ` + expr;
-  }
-
-  expr += " OVER (";
-
-  const parts = [];
-
-  let partitionFields = [];
-  let orderFields = [];
-
-  // Use explicit partitionBy/orderBy if provided (especially for Specific Dimensions)
-  if (w.partitionBy && w.partitionBy.length > 0) {
-    partitionFields = w.partitionBy;
-  }
-  if (w.orderBy && w.orderBy.length > 0) {
-    orderFields = w.orderBy;
-  }
-  console.log('start');
-console.log(partitionFields.length);
-console.log(orderFields.length);
-console.log(w.direction);
-  // If no explicit partition/order, determine based on direction
-  if (partitionFields.length === 0 && orderFields.length === 0) {
-    switch (w.direction) {
-      case "Table (across)":
-        partitionFields = rows
-          .filter((f) => dimensionFields.includes(f.name))
-          .map((f) => f.name);
-        orderFields = columnsSlot
-          .filter((f) => dimensionFields.includes(f.name))
-          .map((f) => ({ field: f.name, direction: "ASC" }));
-        break;
-
-      case "Table (down then across)":
-        partitionFields = columnsSlot
-          .filter((f) => dimensionFields.includes(f.name))
-          .map((f) => f.name);
-        orderFields = [
-          ...rows
-            .filter((f) => dimensionFields.includes(f.name))
-            .map((f) => ({ field: f.name, direction: "ASC" })),
-          ...columnsSlot
-            .filter((f) => dimensionFields.includes(f.name))
-            .map((f) => ({ field: f.name, direction: "ASC" })),
-        ];
-        break;
-
-      case "Pane (down)":
-        partitionFields = [
-          ...new Set(
-            [...rows, ...columnsSlot]
-              .filter((f) => dimensionFields.includes(f.name))
-              .map((f) => f.name)
-          ),
-        ];
-        orderFields = rows
-          .filter((f) => dimensionFields.includes(f.name))
-          .map((f) => ({ field: f.name, direction: "ASC" }));
-        break;
-
-      case "Cell":
-        partitionFields = [
-          ...new Set(
-            [...rows, ...columnsSlot]
-              .filter((f) => dimensionFields.includes(f.name))
-              .map((f) => f.name)
-          ),
-        ];
-        orderFields = [];
-        break;
-
-      case "Specific Dimensions":
-        partitionFields = [];
-        orderFields = [];
-        break;
-
-      case "Window Down":
-        partitionFields = columnsSlot.filter(f => dimensionFields.includes(f.name)).map(f => f.name);
-        orderFields = rows.filter(f => dimensionFields.includes(f.name)).map(f => ({ field: f.name, direction: "ASC" }));
-        break;
-
-      case "Window Across":
-        partitionFields = rows.filter(f => dimensionFields.includes(f.name)).map(f => f.name);
-        orderFields = columnsSlot.filter(f => dimensionFields.includes(f.name)).map(f => ({ field: f.name, direction: "ASC" }));
-        break;
-
-      case "Pane Across":
-        partitionFields = [
-          ...new Set(
-            [...rows, ...columnsSlot]
-              .filter((f) => dimensionFields.includes(f.name))
-              .map((f) => f.name)
-          ),
-        ];
-        orderFields = columnsSlot
-          .filter((f) => dimensionFields.includes(f.name))
-          .map((f) => ({ field: f.name, direction: "ASC" }));
-        break;
-
-      case "Pane Down":
-        partitionFields = [
-          ...new Set(
-            [...rows, ...columnsSlot]
-              .filter((f) => dimensionFields.includes(f.name))
-              .map((f) => f.name)
-          ),
-        ];
-        orderFields = rows
-          .filter((f) => dimensionFields.includes(f.name))
-          .map((f) => ({ field: f.name, direction: "ASC" }));
-        break;
-
-      case "Down Then Across":
-        partitionFields = columnsSlot
-          .filter((f) => dimensionFields.includes(f.name))
-          .map((f) => f.name);
-        orderFields = [
-          ...rows
-            .filter((f) => dimensionFields.includes(f.name))
-            .map((f) => ({ field: f.name, direction: "ASC" })),
-          ...columnsSlot
-            .filter((f) => dimensionFields.includes(f.name))
-            .map((f) => ({ field: f.name, direction: "ASC" })),
-        ];
-        break;
-
-      case "Across Then Down":
-        partitionFields = rows
-          .filter((f) => dimensionFields.includes(f.name))
-          .map((f) => f.name);
-        orderFields = [
-          ...columnsSlot
-            .filter((f) => dimensionFields.includes(f.name))
-            .map((f) => ({ field: f.name, direction: "ASC" })),
-          ...rows
-            .filter((f) => dimensionFields.includes(f.name))
-            .map((f) => ({ field: f.name, direction: "ASC" })),
-        ];
-        break;
-
-      default:
-        partitionFields = [];
-        orderFields = [];
-    }
-  }
-console.log('partitionFields length-----------');
-console.log(partitionFields.length);
-console.log(partitionFields);
-    if (partitionFields.length > 0) {
-      parts.push(`PARTITION BY ${partitionFields.map(quoteField).join(", ")}`);
-    }
-
-    if (orderFields.length > 0) {
-      const orderClauses = orderFields.map(
-        (o) => `${quoteField(o.field)} ${o.direction || "ASC"}`
-      );
-      parts.push(`ORDER BY ${orderClauses.join(", ")}`);
-    }
-
-    expr += parts.join(" ");
-
-    const hasOrder = orderFields.length > 0;
-
-    if (hasOrder && w.frameType && w.frameStart && w.frameEnd) {
-      let frameSpec = ` ${w.frameType} BETWEEN `;
-
-      if (w.frameStart === "N PRECEDING") {
-        frameSpec += `${w.frameStartValue || 1} PRECEDING`;
-      } else if (w.frameStart === "N FOLLOWING") {
-        frameSpec += `${w.frameStartValue || 1} FOLLOWING`;
-      } else {
-        frameSpec += w.frameStart;
+    // Directly fetch from the endpoint URL
+    if (ds.endpoint_url) {
+      try {
+        const method = (ds.http_method || 'GET').toUpperCase();
+        const headers = ds.request_headers_json || {};
+        
+        const res = await fetch(ds.endpoint_url, { 
+          method, 
+          mode: 'cors',
+          headers: headers
+        });
+        
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        }
+        
+        const text = await res.text();
+        if (!text) {
+          setPreviewError('Direct fetch returned empty response');
+          setPreviewLoading(false);
+          return;
+        }
+        
+        let parsed: any = null;
+        try { parsed = JSON.parse(text); } catch { parsed = text; }
+        const normalized = normalizeApiResponse(parsed);
+        setPreviewData({ raw: parsed, normalized });
+      } catch (directErr: any) {
+        setPreviewError(directErr.message || 'Direct fetch failed (CORS or network)');
+      } finally {
+        setPreviewLoading(false);
       }
-
-      frameSpec += " AND ";
-
-      if (w.frameEnd === "N PRECEDING") {
-        frameSpec += `${w.frameEndValue || 1} PRECEDING`;
-      } else if (w.frameEnd === "N FOLLOWING") {
-        frameSpec += `${w.frameEndValue || 1} FOLLOWING`;
-      } else {
-        frameSpec += w.frameEnd;
-      }
-
-      expr += frameSpec;
-    }
-
-    expr += ")";
-
-    if (w.alias) {
-      expr += ` AS ${qid(w.alias)}`;
-    }
-console.log('expr--------------');
-console.log(expr);
-    return expr;
-  };
-
-  const buildLevelSQL = (level, isOutermost = false) => {
-    const selectFields = [];
-
-    // Regular fields
-    if (level.select && level.select.length > 0) {
-      selectFields.push(...level.select.map(quoteField));
-    }
-
-    // Window functions
-    if (level.windows && level.windows.length > 0) {
-      selectFields.push(
-        ...level.windows.map((w) =>
-          makeWindowExpr(w, quoteField, dimensionFields, columnsSlot, rows)
-        )
-      );
-    }
-
-    if (selectFields.length === 0) {
-      selectFields.push("*");
-    }
-
-    let sql = `SELECT ${selectFields.join(",\n       ")}`;
-
-    if (level.isSubquery && level.from) {
-      sql += `\n${level.from}`;
-    } else if (!level.isSubquery) {
-      sql += `\n${buildFromWithJoins()}`;
-    }
-
-    if (level.where && level.where.length > 0) {
-      const conditions = level.where.filter((c) => c.trim());
-      if (conditions.length > 0) {
-        sql += `\nWHERE ${conditions.join(" AND ")}`;
-      }
-    }
-
-    if (level.groupBy && level.groupBy.length > 0) {
-      sql += `\nGROUP BY ${level.groupBy.map(quoteField).join(", ")}`;
-    }
-
-    if (level.having && level.having.length > 0) {
-      const conditions = level.having.filter((c) => c.trim());
-      if (conditions.length > 0) {
-        sql += `\nHAVING ${conditions.join(" AND ")}`;
-      }
-    }
-
-    if (level.orderBy && level.orderBy.length > 0) {
-      const orderClauses = level.orderBy
-        .filter((o) => o.field)
-        .map((o) => `${quoteField(o.field)} ${o.direction || "ASC"}`);
-      if (orderClauses.length > 0) {
-        sql += `\nORDER BY ${orderClauses.join(", ")}`;
-      }
-    }
-
-    if (level.limit && level.limit > 0) {
-      sql += `\nLIMIT ${level.limit}`;
-    }
-
-    return sql;
-  };
-
-  // Build from outermost to innermost
-  const levels = [...cfg.levels].sort((a, b) => a.id - b.id);
-
-  if (levels.length === 1) {
-    return buildLevelSQL(levels[0], true);
-  }
-
-  let sql = "";
-  for (let i = 0; i < levels.length; i++) {
-    const level = levels[i];
-    const isOutermost = i === 0;
-    const isInnermost = i === levels.length - 1;
-
-    if (isOutermost) {
-      sql = buildLevelSQL(level, true);
     } else {
-      // Wrap previous SQL as subquery
-      const prevSQL = sql;
-      const currentLevelSQL = buildLevelSQL(level);
+      setPreviewError('Data source has no endpoint_url');
+      setPreviewLoading(false);
+    }
+  };
 
-      // Replace the FROM clause in current level with the previous SQL as subquery
-      // If currentLevelSQL has a FROM clause, replace it; else append subquery FROM
-      if (currentLevelSQL.match(/FROM\s+\(/i)) {
-        sql = currentLevelSQL.replace(
-          /FROM\s+\([^)]*\)/i,
-          `FROM (\n${prevSQL
-            .split("\n")
-            .map((line) => "  " + line)
-            .join("\n")}\n) AS level_${level.id - 1}`
-        );
-      } else {
-        sql = `${currentLevelSQL}\nFROM (\n${prevSQL
-          .split("\n")
-          .map((line) => "  " + line)
-          .join("\n")}\n) AS level_${level.id - 1}`;
+  useEffect(() => {
+    if (widgetForm.data_source_id) {
+      fetchPreviewData();
+    } else {
+      setPreviewData(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [widgetForm.data_source_id]);
+
+  // Helper function to update config_json
+  const updateConfigJson = (key: string, value: any) => {
+    setWidgetForm(prev => ({
+      ...prev,
+      config_json: {
+        ...prev.config_json,
+        [key]: value
       }
-    }
-  }
-
-  return sql;
-};
-
- 
-  const generateAndShowSQL = () => {
-  const sql = buildMultiLevelSQL(columnsSlot, rows);
-  setGeneratedSql(sql);
-  setSqlPopupVisible(true);
-};
-
-  const executeGeneratedSQL = async () => {
-    setSqlPopupVisible(false);
-
-    try {
-      const apiBase = "https://intelligentsalesman.com/ism1/API/tableu";
-      const cleanQuery = generatedSql.replace(/;+\s*$/g, "");
-
-      const res = await fetch(`${apiBase}/execute_query.php`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: cleanQuery }),
-      });
-
-      const data = await res.json();
-      console.log('data-------------');
-      console.log(data);
-      if (data.success) {
-        handleDataLoad(data.data || []);
-        alert(`Query executed successfully! Retrieved ${(data.data || []).length} rows.`);
-      } else {
-        alert("Query execution failed: " + (data.error || "Unknown error"));
-      }
-    } catch (error) {
-      console.error("Error executing query:", error);
-      alert("Error executing query. Check console for details.");
-    }
-  };
-
-  const addField = (field) => {
-    if (!fields.find((f) => f.name === field.name)) {
-      setFields((prev) => [...prev, field]);
-    }
-  };
-
-  const removeField = (field) => {
-    setFields((prev) => prev.filter((f) => f.name !== field.name));
-    setFilters((prev) => prev.filter((f) => f.name !== field.name));
-    setColumnsSlot((prev) => prev.filter((f) => f.name !== field.name));
-    setRows((prev) => prev.filter((f) => f.name !== field.name));
-  };
-
-  const addFilter = (field) => {
-    if (!filters.find((f) => f.name === field.name)) {
-      setFilters((prev) => [...prev, field]);
-    }
-  };
-
-  const removeFilter = (field) => {
-    setFilters((prev) => prev.filter((f) => f.name !== field.name));
-  };
-
-  const addToColumns = (field) => {
-    if (!columnsSlot.find((f) => f.name === field.name)) {
-      setColumnsSlot((prev) => [...prev, field]);
-    }
-  };
-
-  const removeFromColumns = (field) => {
-    setColumnsSlot((prev) => prev.filter((f) => f.name !== field.name));
-  };
-
-  const addToRows = (field) => {
-    if (!rows.find((f) => f.name === field.name)) {
-      setRows((prev) => [...prev, field]);
-    }
-  };
-
-  const removeFromRows = (field) => {
-    setRows((prev) => prev.filter((f) => f.name !== field.name));
-  };
-
-  const clearAllSelections = () => {
-    if (!window.confirm("Clear all visual and query-builder selections? This cannot be undone.")) return;
-    setFilters([]);
-    setColumnsSlot([]);
-    setRows([]);
-    setPartitionKey("");
-    setQueryConfig(null);
-    setCalcConfig({
-      calculation: "SUM",
-      cumulative: true,
-      frameType: "EXPANDING",
-      frameSize: 0,
-      direction: "FORWARD",
-      lodScope: "INCLUDE",
-      lodFields: [],
-    });
-    setXField("");
-    setYField("");
+    }));
   };
 
   return (
-    <DndProvider backend={HTML5Backend}>
-      <div style={{ display: "flex", height: "100vh", fontFamily: "Arial, sans-serif" }}>
-        {/* Left Sidebar */}
-        <div style={{ width: 320, backgroundColor: "#f8f9fa", padding: 15, borderRight: "1px solid #ddd", overflowY: "auto" }}>
-          <h3 style={{ marginTop: 0 }}>Fields</h3>
+    <div className="fixed inset-0 bg-black bg-opacity-30 flex justify-center items-start z-50 pt-12">
+      <div className="bg-white rounded-lg p-6 w-96 max-h-[80vh] overflow-y-auto">
+        <h2 className="text-xl font-semibold mb-4">{widgetForm.id ? 'Edit Widget' : 'Create Widget'}</h2>
 
-          {/* Action Buttons */}
-          <div style={{ marginBottom: 15, display: "flex", flexDirection: "column", gap: 8 }}>
-            <button
-              onClick={() => setShowTablesPopup(true)}
-              style={{
-                padding: "8px 12px",
-                backgroundColor: "#007bff",
-                color: "white",
-                border: "none",
-                borderRadius: 4,
-                cursor: "pointer",
-                fontSize: 12,
-              }}
+        <label className="block mb-1 font-medium">Title</label>
+        <input 
+          type="text" 
+          className="w-full border border-gray-300 rounded px-3 py-2 mb-3" 
+          value={widgetForm.title ?? ''} 
+          onChange={e => setWidgetForm(prev => ({ ...prev, title: e.target.value }))} 
+        />
+
+        <label className="block mb-1 font-medium">Visual Type</label>
+        <select 
+          className="w-full border border-gray-300 rounded px-3 py-2 mb-3" 
+          value={widgetForm.visual_type ?? 'CHART'} 
+          onChange={e => setWidgetForm(prev => ({ ...prev, visual_type: e.target.value as VisualType }))}
+        >
+          <option value="KPI">KPI</option>
+          <option value="CHART">CHART</option>
+          <option value="TABLE">TABLE</option>
+          <option value="TEXT">TEXT</option>
+          <option value="CUSTOM">CUSTOM</option>
+        </select>
+
+        {widgetForm.visual_type === 'CHART' && (
+          <>
+            <label className="block mb-1 font-medium">Chart Type</label>
+            <select 
+              className="w-full border border-gray-300 rounded px-3 py-2 mb-3" 
+              value={widgetForm.chart_type ?? 'BAR'} 
+              onChange={e => setWidgetForm(prev => ({ ...prev, chart_type: e.target.value as ChartType }))}
             >
-              📊 Manage Tables & Data
-            </button>
+              <option value="BAR">Bar Chart</option>
+              <option value="PIE">Pie Chart</option>
+              <option value="LINE">Line Chart</option>
+            </select>
+          </>
+        )}
 
-            <button
-              onClick={() => setShowQueryPopup(true)}
-              disabled={!baseTable}
-              style={{
-                padding: "8px 12px",
-                backgroundColor: !baseTable ? "#6c757d" : "#28a745",
-                color: "white",
-                border: "none",
-                borderRadius: 4,
-                cursor: !baseTable ? "not-allowed" : "pointer",
-                fontSize: 12,
-              }}
-            >
-              🔧 Multi-Level Query Builder
-            </button>
+        {/* KPI Configuration Section */}
+        {widgetForm.visual_type === 'KPI' && (
+          <div className="mb-4 p-3 bg-blue-50 rounded">
+            <h4 className="font-medium mb-2">KPI Configuration</h4>
 
-            <button
-              onClick={generateAndShowSQL}
-              disabled={!baseTable}
-              style={{
-                padding: "8px 12px",
-                backgroundColor: !baseTable ? "#6c757d" : "#17a2b8",
-                color: "white",
-                border: "none",
-                borderRadius: 4,
-                cursor: !baseTable ? "not-allowed" : "pointer",
-                fontSize: 12,
-              }}
-            >
-              📝 Generate & View SQL
-            </button>
+            <label className="block mb-1 font-medium">Value</label>
+            <input 
+              type="text" 
+              className="w-full border border-gray-300 rounded px-3 py-2 mb-2" 
+              value={widgetForm.config_json?.value ?? ''} 
+              onChange={e => updateConfigJson('value', e.target.value)}
+              placeholder="e.g., 12345"
+            />
 
-            <button
-              onClick={clearAllSelections}
-              style={{
-                padding: "8px 12px",
-                backgroundColor: "#dc3545",
-                color: "white",
-                border: "none",
-                borderRadius: 4,
-                cursor: "pointer",
-                fontSize: 12,
-              }}
-            >
-              ♻️ Clear All Selections
-            </button>
+            <label className="block mb-1 font-medium">Trend</label>
+            <input 
+              type="text" 
+              className="w-full border border-gray-300 rounded px-3 py-2 mb-2" 
+              value={widgetForm.config_json?.trend ?? ''} 
+              onChange={e => updateConfigJson('trend', e.target.value)}
+              placeholder="e.g., +5%"
+            />
+
+            <label className="block mb-1 font-medium">Description</label>
+            <input 
+              type="text" 
+              className="w-full border border-gray-300 rounded px-3 py-2 mb-2" 
+              value={widgetForm.config_json?.description ?? ''} 
+              onChange={e => updateConfigJson('description', e.target.value)}
+              placeholder="e.g., Monthly Sales"
+            />
           </div>
+        )}
 
-          {/* Status Info */}
-          <div style={{ marginBottom: 15, padding: 10, backgroundColor: "#e9ecef", borderRadius: 6, fontSize: 12 }}>
-            <div><strong>Tables:</strong> {selectedTables.length ? selectedTables.join(", ") : "None"}</div>
-            <div><strong>Base:</strong> {baseTable || "Not set"}</div>
-            <div><strong>Joins:</strong> {joinGraph.length}</div>
-            <div><strong>Fields:</strong> {fields.length}</div>
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          <div>
+            <label className="block mb-1 font-medium">Position Row</label>
+            <input 
+              type="number" 
+              className="w-full border border-gray-300 rounded px-3 py-2" 
+              value={widgetForm.position_row ?? 0} 
+              onChange={e => setWidgetForm(prev => ({ ...prev, position_row: parseInt(e.target.value || '0') }))} 
+            />
           </div>
-
-          {/* Field list and quick add */}
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <strong>Available Fields</strong>
-              <small style={{ color: "#666" }}>{fields.length}</small>
-            </div>
-            <div style={{ maxHeight: 360, overflowY: "auto", marginTop: 8 }}>
-              {fields.length === 0 ? (
-                <div style={{ color: "#666", fontStyle: "italic", textAlign: "center", padding: 20 }}>
-                  No fields available.<br />
-                  Please select tables first.
-                </div>
-              ) : (
-                fields.map((field, idx) => (
-                  <Field key={`field-${field.name}-${field.source || "local"}-${idx}`} field={field} />
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Quick X/Y selection */}
-          <div style={{ padding: 10, background: "#fff", borderRadius: 6, border: "1px solid #eee" }}>
-            <div style={{ marginBottom: 8 }}>
-              <label style={{ fontWeight: 600 }}>X (Quarter / Time dimension)</label>
-              <select
-                value={xField}
-                onChange={(e) => setXField(e.target.value)}
-                style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid #ddd", marginTop: 6 }}
-              >
-                <option value="">Select X (Date / Quarter)</option>
-                {dimensionFields.map(f => <option key={f} value={f}>{f}</option>)}
-              </select>
-              <small style={{ color: "#666" }}>Date-like fields will be converted to Quarter labels (Q1 2023)</small>
-            </div>
-
-            <div style={{ marginBottom: 8 }}>
-              <label style={{ fontWeight: 600 }}>Y (Measure)</label>
-              <select
-                value={yField}
-                onChange={(e) => setYField(e.target.value)}
-                style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid #ddd", marginTop: 6 }}
-              >
-                <option value="">Select measure (e.g. Sales)</option>
-                {measureFields.map(f => <option key={f} value={f}>{f}</option>)}
-              </select>
-            </div>
-          </div>
-
-        </div>
-
-        {/* Main Content */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-          {/* Top Bar */}
-          <div style={{ padding: 15, borderBottom: "1px solid #ddd", backgroundColor: "#fff" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h2 style={{ margin: 0 }}>Data Visualization Dashboard</h2>
-              <div style={{ display: "flex", gap: 15, alignItems: "center" }}>
-
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <label style={{ fontWeight: 600 }}>Chart Type:</label>
-                  <select
-                    value={selectedChart}
-                    onChange={(e) => setSelectedChart(e.target.value)}
-                    style={{ padding: 8, borderRadius: 4, border: "1px solid #ddd" }}
-                  >
-                    <option value="table">Table</option>
-                    <option value="bar">Bar Chart</option>
-                    <option value="line">Line Chart</option>
-                    <option value="pie">Pie Chart</option>
-                  </select>
-                </div>
-
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <label style={{ fontWeight: 600 }}>Facet (Graphlet):</label>
-                  <select
-                    value={partitionKey}
-                    onChange={(e) => setPartitionKey(e.target.value)}
-                    style={{ padding: 8, borderRadius: 4, border: "1px solid #ddd" }}
-                  >
-                    <option value="">None (Single Chart)</option>
-                    {dimensionFields.map(field => (
-                      <option key={field} value={field}>{field}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Calculation UI */}
-                <div style={{ padding: 10, borderRadius: 6, background: "#f8f9fa", display: "flex", gap: 12, alignItems: "center" }}>
-                  <div>
-                    <label style={{ fontWeight: 600 }}>Calculation:</label>
-                    <select
-                      value={calcConfig.calculation}
-                      onChange={(e) => setCalcConfig(c => ({ ...c, calculation: e.target.value }))}
-                      style={{ padding: 6, borderRadius: 4, border: "1px solid #ddd", marginLeft: 6 }}
-                    >
-                      <option value="SUM">SUM</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label style={{ fontWeight: 600 }}>Cumulative:</label>
-                    <select
-                      value={String(!!calcConfig.cumulative)}
-                      onChange={(e) => setCalcConfig(c => ({ ...c, cumulative: e.target.value === "true" }))}
-                      style={{ padding: 6, borderRadius: 4, border: "1px solid #ddd", marginLeft: 6 }}
-                    >
-                      <option value="true">Yes</option>
-                      <option value="false">No</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label style={{ fontWeight: 600 }}>Direction:</label>
-                    <select
-                      value={calcConfig.direction}
-                      onChange={(e) => setCalcConfig(c => ({ ...c, direction: e.target.value }))}
-                      style={{ padding: 6, borderRadius: 4, border: "1px solid #ddd", marginLeft: 6 }}
-                    >
-                      <option value="FORWARD">Forward (build up)</option>
-                      <option value="BACKWARD">Backward (deduct)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label style={{ fontWeight: 600 }}>Frame:</label>
-                    <select
-                      value={calcConfig.frameType}
-                      onChange={(e) => setCalcConfig(c => ({ ...c, frameType: e.target.value }))}
-                      style={{ padding: 6, borderRadius: 4, border: "1px solid #ddd", marginLeft: 6 }}
-                    >
-                      <option value="EXPANDING">Expanding (cumulative)</option>
-                      <option value="FIXED">Fixed-size window</option>
-                    </select>
-                  </div>
-
-                  {calcConfig.frameType === "FIXED" && (
-                    <div>
-                      <label style={{ fontWeight: 600 }}>Size:</label>
-                      <input
-                        type="number"
-                        min={1}
-                        value={calcConfig.frameSize || 1}
-                        onChange={(e) => setCalcConfig(c => ({ ...c, frameSize: Math.max(1, Number(e.target.value)) }))}
-                        style={{ width: 80, padding: 6, borderRadius: 4, border: "1px solid #ddd", marginLeft: 6 }}
-                      />
-                    </div>
-                  )}
-
-                </div>
-
-              </div>
-            </div>
-          </div>
-
-          {/* Drag & Drop Areas */}
-          <div style={{ display: "flex", padding: 15, backgroundColor: "#f8f9fa", borderBottom: "1px solid #ddd" }}>
-            <Slot title="🔍 Filters" items={filters} onDropField={addFilter} onRemoveField={removeFilter} />
-            <Slot title="📊 Columns" items={columnsSlot} onDropField={addToColumns} onRemoveField={removeFromColumns} />
-            <Slot title="📈 Rows" items={rows} onDropField={addToRows} onRemoveField={removeFromRows} />
-          </div>
-
-          {/* Chart Area */}
-          <div style={{ flex: 1, padding: 20, backgroundColor: "#fff", overflow: "auto" }}>
-            <GraphletCollection
-              chartType={selectedChart}
-              data={data}
-              partitionKey={partitionKey}
-              xKey={xKey}
-              yKey={yKey}
-              apiData={apiData}
-              calcConfig={{ ...calcConfig, originalData: apiData }}
+          <div>
+            <label className="block mb-1 font-medium">Position Col</label>
+            <input 
+              type="number" 
+              className="w-full border border-gray-300 rounded px-3 py-2" 
+              value={widgetForm.position_col ?? 0} 
+              onChange={e => setWidgetForm(prev => ({ ...prev, position_col: parseInt(e.target.value || '0') }))} 
             />
           </div>
         </div>
+
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          <div>
+            <label className="block mb-1 font-medium">Row Span</label>
+            <input 
+              type="number" 
+              className="w-full border border-gray-300 rounded px-3 py-2" 
+              value={widgetForm.row_span ?? 1} 
+              onChange={e => setWidgetForm(prev => ({ ...prev, row_span: parseInt(e.target.value || '1') }))} 
+            />
+          </div>
+          <div>
+            <label className="block mb-1 font-medium">Col Span</label>
+            <input 
+              type="number" 
+              className="w-full border border-gray-300 rounded px-3 py-2" 
+              value={widgetForm.col_span ?? 1} 
+              onChange={e => setWidgetForm(prev => ({ ...prev, col_span: parseInt(e.target.value || '1') }))} 
+            />
+          </div>
+        </div>
+
+        <label className="block mb-1 font-medium">Background Color</label>
+        <input 
+          type="color" 
+          className="w-full border border-gray-300 rounded px-3 py-2 mb-3" 
+          value={widgetForm.background_color ?? '#ffffff'} 
+          onChange={e => setWidgetForm(prev => ({ ...prev, background_color: e.target.value }))} 
+        />
+
+        <label className="block mb-1 font-medium">Data Source</label>
+        <select 
+          className="w-full border border-gray-300 rounded px-3 py-2 mb-3" 
+          value={widgetForm.data_source_id ?? ''} 
+          onChange={e => setWidgetForm(prev => ({ ...prev, data_source_id: e.target.value ? parseInt(e.target.value) : null }))}
+        >
+          <option value="">-- None --</option>
+          {dataSources.map(ds => <option key={ds.id} value={ds.id}>{ds.name}</option>)}
+        </select>
+
+        {widgetForm.data_source_id && (
+          <div className="mb-3 p-3 bg-gray-50 rounded">
+            <h4 className="font-medium mb-2">Data Preview</h4>
+            {previewLoading ? (
+              <div className="text-center py-2">Loading...</div>
+            ) : previewError ? (
+              <div className="text-red-500 text-sm">{previewError}</div>
+            ) : previewData ? (
+              <div className="text-sm">
+                {previewData.normalized && previewData.normalized.kind === 'kpi' ? (
+                  <div className="mb-2">
+                    <KPIView k={previewData.normalized as NormalizedKPI} small />
+                  </div>
+                ) : null}
+                <pre className="bg-white p-2 rounded border max-h-32 overflow-y-auto">
+                  {JSON.stringify(previewData.raw ?? previewData.normalized ?? previewData, null, 2)}
+                </pre>
+              </div>
+            ) : (
+              <div className="text-gray-500 text-sm">No data available</div>
+            )}
+          </div>
+        )}
+
+        <label className="block mb-1 font-medium">Refresh Interval (sec)</label>
+        <input 
+          type="number" 
+          className="w-full border border-gray-300 rounded px-3 py-2 mb-3" 
+          value={widgetForm.refresh_interval_sec ?? 0} 
+          onChange={e => setWidgetForm(prev => ({ ...prev, refresh_interval_sec: parseInt(e.target.value || '0') }))} 
+        />
+
+        <div className="flex justify-end gap-2">
+          <button className="px-4 py-2 rounded bg-gray-300" onClick={() => setShowWidgetModal(false)}>Cancel</button>
+          <button className="px-4 py-2 rounded bg-blue-600 text-white" onClick={saveWidget}>Save</button>
+        </div>
       </div>
-
-      {/* Tables & Data Management Popup */}
-      <Modal
-        visible={showTablesPopup}
-        title="Tables & Data Management"
-        onClose={() => setShowTablesPopup(false)}
-        maxWidth="1000px"
-      >
-        <APIIntegration
-          selectedTables={selectedTables}
-          setSelectedTables={setSelectedTables}
-          baseTable={baseTable}
-          setBaseTable={setBaseTable}
-          joinGraph={joinGraph}
-          setJoinGraph={setJoinGraph}
-          onDataLoad={handleDataLoad}
-          onTablesLoad={handleTablesLoad}
-          onColumnsMapLoad={handleColumnsMapLoad}
-        />
-      </Modal>
-
-      {/* Multi-Level Query Builder Popup */}
-      <Modal
-        visible={showQueryPopup}
-        title="Multi-Level Nested Query Builder"
-        onClose={() => setShowQueryPopup(false)}
-        maxWidth="1200px"
-      >
-        <MultiLevelNestedQueryBuilder
-          queryConfig={queryConfig}
-          onChange={setQueryConfig}
-          dimensionFields={dimensionFields}
-          measureFields={measureFields}
-          selectedTables={selectedTables}
-          baseTable={baseTable}
-        />
-      </Modal>
-
-      {/* SQL Preview & Execute Popup */}
-      <SqlPopup
-        visible={sqlPopupVisible}
-        sql={generatedSql}
-        onClose={() => setSqlPopupVisible(false)}
-        onExecute={executeGeneratedSQL}
-      />
-    </DndProvider>
+    </div>
   );
 };
 
-export default App;
+const DataSourceModal: React.FC<{
+  dataSourceForm: Partial<DataSource>;
+  setDataSourceForm: React.Dispatch<React.SetStateAction<Partial<DataSource>>>;
+  saveDataSource: () => Promise<void>;
+  setShowDataSourceModal: React.Dispatch<React.SetStateAction<boolean>>;
+}> = ({ 
+  dataSourceForm, 
+  setDataSourceForm, 
+  saveDataSource, 
+  setShowDataSourceModal 
+}) => {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-30 flex justify-center items-start z-50 pt-12">
+      <div className="bg-white rounded-lg p-6 w-96 max-h-[80vh] overflow-y-auto">
+        <h2 className="text-xl font-semibold mb-4">{dataSourceForm.id ? 'Edit Data Source' : 'Create Data Source'}</h2>
+
+        <label className="block mb-1 font-medium">Name</label>
+        <input 
+          type="text" 
+          className="w-full border border-gray-300 rounded px-3 py-2 mb-3" 
+          value={dataSourceForm.name ?? ''} 
+          onChange={e => setDataSourceForm(prev => ({ ...prev, name: e.target.value }))} 
+        />
+
+        <label className="block mb-1 font-medium">Source Type</label>
+        <select 
+          className="w-full border border-gray-300 rounded px-3 py-2 mb-3" 
+          value={dataSourceForm.source_type ?? 'API'} 
+          onChange={e => setDataSourceForm(prev => ({ ...prev, source_type: e.target.value as SourceType }))}
+        >
+          <option value="API">API</option>
+          <option value="SQL">SQL</option>
+          <option value="STATIC">STATIC</option>
+        </select>
+
+        <label className="block mb-1 font-medium">Endpoint URL</label>
+        <input 
+          type="text" 
+          className="w-full border border-gray-300 rounded px-3 py-2 mb-3" 
+          value={dataSourceForm.endpoint_url ?? ''} 
+          onChange={e => setDataSourceForm(prev => ({ ...prev, endpoint_url: e.target.value }))} 
+        />
+
+        <label className="block mb-1 font-medium">HTTP Method</label>
+        <select 
+          className="w-full border border-gray-300 rounded px-3 py-2 mb-3" 
+          value={dataSourceForm.http_method ?? 'GET'} 
+          onChange={e => setDataSourceForm(prev => ({ ...prev, http_method: e.target.value as HttpMethod }))}
+        >
+          <option value="GET">GET</option>
+          <option value="POST">POST</option>
+        </select>
+
+        <label className="block mb-1 font-medium">Cached</label>
+        <select 
+          className="w-full border border-gray-300 rounded px-3 py-2 mb-3" 
+          value={dataSourceForm.is_cached ? '1' : '0'} 
+          onChange={e => setDataSourceForm(prev => ({ ...prev, is_cached: e.target.value === '1' }))}
+        >
+          <option value="0">No</option>
+          <option value="1">Yes</option>
+        </select>
+
+
+        <label className="block mb-1 font-medium">Cache TTL (sec)</label>
+        <input 
+          type="number" 
+          className="w-full border border-gray-300 rounded px-3 py-2 mb-3" 
+          value={dataSourceForm.cache_ttl_sec ?? 0} 
+          onChange={e => setDataSourceForm(prev => ({ ...prev, cache_ttl_sec: parseInt(e.target.value || '0') }))} 
+        />
+
+        <div className="flex justify-end gap-2">
+          <button className="px-4 py-2 rounded bg-gray-300" onClick={() => setShowDataSourceModal(false)}>Cancel</button>
+          <button className="px-4 py-2 rounded bg-blue-600 text-white" onClick={saveDataSource}>Save</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* --- Main component --- */
+
+const DashboardManager: React.FC = () => {
+  const [dashboards, setDashboards] = useState<Dashboard[]>([]);
+  const [selectedDashboard, setSelectedDashboard] = useState<Dashboard | null>(null);
+  const [widgets, setWidgets] = useState<Widget[]>([]);
+  const [dataSources, setDataSources] = useState<DataSource[]>([]);
+  const [layout, setLayout] = useState<any[]>([]);
+  // widgetApiData stores { raw, normalized }
+  const [widgetApiData, setWidgetApiData] = useState<Record<number, any>>({});
+  const [widgetLoadingState, setWidgetLoadingState] = useState<Record<number, boolean>>({});
+  const [widgetErrors, setWidgetErrors] = useState<Record<number, string>>({});
+  const [loading, setLoading] = useState<boolean>(true);
+  const [activeTab, setActiveTab] = useState<'dashboards' | 'widgets' | 'datasources'>('dashboards');
+  const [showDashboardModal, setShowDashboardModal] = useState(false);
+  const [dashboardForm, setDashboardForm] = useState<Partial<Dashboard>>({});
+  const [showWidgetModal, setShowWidgetModal] = useState(false);
+  const [widgetForm, setWidgetForm] = useState<Partial<Widget>>({});
+  const [showDataSourceModal, setShowDataSourceModal] = useState(false);
+  const [dataSourceForm, setDataSourceForm] = useState<Partial<DataSource>>({});
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      await loadDashboards();
+      await loadDataSources();
+    })();
+  }, []);
+  useEffect(() => {
+      const newLayout = widgets.map(widget => ({
+        i: widget.id!.toString(),
+        x: widget.position_col,
+        y: widget.position_row,
+        w: widget.col_span,
+        h: widget.row_span,
+        static: false
+      }));
+      setLayout(newLayout);
+    }, [widgets]);
+
+  useEffect(() => {
+    if (selectedDashboard) {
+      loadWidgets(selectedDashboard.id);
+    } else {
+      setWidgets([]);
+    }
+  }, [selectedDashboard?.id]);
+
+  // Fetch API data for widgets with data sources
+  useEffect(() => {
+    widgets.forEach(widget => {
+      if (widget.data_source_id && widget.id) {
+        fetchWidgetData(widget);
+      }
+    });
+  }, [widgets, dataSources]);
+
+  useEffect(() => {
+  const timers: Record<number, NodeJS.Timeout> = {};
+
+  widgets.forEach(widget => {
+    if (widget.id && widget.refresh_interval_sec && widget.refresh_interval_sec > 0) {
+      // Clear existing timer if any
+      if (timers[widget.id]) clearInterval(timers[widget.id]);
+
+      timers[widget.id] = setInterval(() => {
+        fetchWidgetData(widget);
+      }, widget.refresh_interval_sec * 1000);
+    }
+  });
+
+  // Cleanup on unmount or widgets change
+  return () => {
+    Object.values(timers).forEach(clearInterval);
+  };
+}, [widgets, dataSources]);
+
+async function fetchWidgetData(widget: Widget) {
+  if (!widget.data_source_id || !widget.id) return;
+
+  const dataSource = dataSources.find(ds => ds.id === widget.data_source_id);
+  if (!dataSource) return;
+
+  setWidgetLoadingState(prev => ({ ...prev, [widget.id!]: true }));
+  setWidgetErrors(prev => ({ ...prev, [widget.id!]: '' }));
+
+  try {
+    let response: any;
+
+    switch (dataSource.source_type) {
+      case 'API':
+        if (!dataSource.endpoint_url) throw new Error('API data source missing endpoint URL');
+
+        if (dataSource.endpoint_url.startsWith('http')) {
+          // External API direct fetch with CORS
+          const res = await fetch(dataSource.endpoint_url, {
+            method: dataSource.http_method || 'GET',
+            mode: 'cors',
+            headers: dataSource.request_headers_json || {},
+          });
+          if (!res.ok) {
+            const text = await res.text();
+            let parsed = null;
+            try { parsed = JSON.parse(text); } catch {}
+            throw new Error(parsed?.error || parsed?.message || `${res.status} ${res.statusText} - ${text}`);
+          }
+          const text = await res.text();
+          response = text ? JSON.parse(text) : null;
+        } else {
+          // Proxy fetch via backend
+          const path = dataSource.endpoint_url.replace(/^\//, '');
+          response = await apiFetch<any>(path, {
+            method: dataSource.http_method || 'GET',
+            headers: dataSource.request_headers_json || {},
+          });
+        }
+        break;
+
+      case 'SQL':
+        // For SQL, send the query or query ID to backend API to execute securely
+        if (!dataSource.code && !(dataSource.request_body_template_json?.query)) {
+          throw new Error('SQL data source missing query');
+        }
+        response = await apiFetch<any>('/execute-sql', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(dataSource.request_headers_json || {}) },
+          body: JSON.stringify({
+            query: dataSource.code || dataSource.request_body_template_json?.query,
+            params: dataSource.request_query_params_json || {},
+          }),
+        });
+        break;
+
+      case 'STATIC':
+        // Static data embedded in config_json or code field
+        if (dataSource.config_json) {
+          response = dataSource.config_json;
+        } else if (dataSource.code) {
+          try {
+            response = JSON.parse(dataSource.code);
+          } catch {
+            response = dataSource.code;
+          }
+        } else {
+          throw new Error('Static data source missing data');
+        }
+        break;
+
+      default:
+        throw new Error(`Unsupported data source type: ${dataSource.source_type}`);
+    }
+
+    if (!response) throw new Error('Empty response from data source');
+
+    const normalized = normalizeApiResponse(response);
+
+    setWidgetApiData(prev => ({
+      ...prev,
+      [widget.id!]: { raw: response, normalized }
+    }));
+  } catch (err: any) {
+    console.error(`Failed to fetch data for widget ${widget.id}:`, err);
+    setWidgetErrors(prev => ({
+      ...prev,
+      [widget.id!]: err.message || 'Failed to load data'
+    }));
+  } finally {
+    setWidgetLoadingState(prev => ({ ...prev, [widget.id!]: false }));
+  }
+}
+const onLayoutChange = (newLayout: any[]) => {
+    // Remove setLayout(newLayout) to prevent infinite loop
+    
+    // Update widget positions and spans in state
+    setWidgets(prevWidgets => {
+      const updatedWidgets = prevWidgets.map(w => {
+        const layoutItem = newLayout.find(item => item.i === w.id!.toString());
+        if (!layoutItem) return w;
+        return {
+          ...w,
+          position_col: layoutItem.x,
+          position_row: layoutItem.y,
+          col_span: layoutItem.w,
+          row_span: layoutItem.h,
+        };
+      });
+      return updatedWidgets;
+    });
+
+    // Optionally, debounce and save updated widgets to backend here
+  };
+
+  async function loadDashboards() {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiFetch<Dashboard[]>('/dashboards');
+      setDashboards(data || []);
+      if (data && data.length > 0) {
+        setSelectedDashboard((prev) => {
+          if (prev) {
+            const found = data.find(d => d.id === prev.id);
+            return found || data[0];
+          }
+          return data[0];
+        });
+      } else {
+        setSelectedDashboard(null);
+      }
+    } catch (e: any) {
+      console.error(e);
+      setError(e.message || 'Failed to fetch dashboards');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadWidgets(dashboardId?: number) {
+    setError(null);
+    try {
+      if (dashboardId) {
+        const data = await apiFetch<Widget[]>(`/widgets?dashboard_id=${dashboardId}`);
+        setWidgets(data || []);
+      } else {
+        const data = await apiFetch<Widget[]>('/widgets');
+        setWidgets(data || []);
+      }
+    } catch (e: any) {
+      console.error(e);
+      setError(e.message || 'Failed to fetch widgets');
+    }
+  }
+
+  async function loadDataSources() {
+    setError(null);
+    try {
+      const data = await apiFetch<DataSource[]>('/datasources');
+      setDataSources(data || []);
+    } catch (e: any) {
+      console.error(e);
+      setError(e.message || 'Failed to fetch data sources');
+    }
+  }
+
+  /* --- Dashboard CRUD --- */
+
+  function openCreateDashboard() {
+    setDashboardForm({ type: 'STANDARD', is_default: false, is_active: true, name: '', description: '' });
+    setShowDashboardModal(true);
+  }
+
+  function openEditDashboard(d: Dashboard) {
+    setDashboardForm({ ...d });
+    setShowDashboardModal(true);
+  }
+
+  async function saveDashboard() {
+    setError(null);
+    try {
+      if (!dashboardForm.name || !dashboardForm.name.trim()) {
+        setError('Dashboard name is required');
+        return;
+      }
+      if (dashboardForm.id) {
+        const updated = await apiFetch<Dashboard>(`/dashboards/${dashboardForm.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(dashboardForm),
+          headers: { 'X-User-Id': '1' },
+        });
+        setDashboards(prev => prev.map(d => (d.id === updated.id ? updated : d)));
+        if (selectedDashboard?.id === updated.id) setSelectedDashboard(updated);
+      } else {
+        const created = await apiFetch<Dashboard>('/dashboards', {
+          method: 'POST',
+          body: JSON.stringify(dashboardForm),
+          headers: { 'X-User-Id': '1' },
+        });
+        setDashboards(prev => [...prev, created]);
+        setSelectedDashboard(created);
+      }
+      setShowDashboardModal(false);
+      if (dashboardForm.id) loadWidgets(dashboardForm.id);
+    } catch (e: any) {
+      console.error(e);
+      setError(e.message || 'Failed to save dashboard');
+    }
+  }
+
+  async function deleteDashboard(id?: number) {
+    if (!id) return;
+    if (!window.confirm('Delete dashboard? This cannot be undone.')) return;
+    setError(null);
+    try {
+      await apiFetch<void>(`/dashboards/${id}`, { method: 'DELETE', headers: { 'X-User-Id': '1' } });
+      setDashboards(prev => prev.filter(d => d.id !== id));
+      if (selectedDashboard?.id === id) {
+        setSelectedDashboard(null);
+        setWidgets([]);
+      }
+    } catch (e: any) {
+      console.error(e);
+      setError(e.message || 'Failed to delete dashboard');
+    }
+  }
+
+  /* --- Widget CRUD --- */
+
+  function openCreateWidgetForSelectedDashboard() {
+    if (!selectedDashboard) {
+      alert('Please select a dashboard first');
+      return;
+    }
+    setWidgetForm({
+      dashboard_id: selectedDashboard.id!,
+      visual_type: 'CHART',
+      chart_type: 'BAR',
+      position_row: 0,
+      position_col: 0,
+      row_span: 1,
+      col_span: 1,
+      is_visible: true,
+      sort_order: 0,
+      title: '',
+    });
+    setShowWidgetModal(true);
+  }
+
+  function openEditWidget(w: Widget) {
+    setWidgetForm({ ...w });
+    setShowWidgetModal(true);
+  }
+
+  async function saveWidget() {
+    setError(null);
+    try {
+      if (!widgetForm.dashboard_id) throw new Error('Widget must be linked to a dashboard');
+      if (!widgetForm.title || !widgetForm.title.trim()) widgetForm.title = 'Untitled';
+      let updatedOrCreated: Widget;
+      if (widgetForm.id) {
+        updatedOrCreated = await apiFetch<Widget>(`/widgets/${widgetForm.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(widgetForm),
+          headers: { 'X-User-Id': '1' },
+        });
+        setWidgets(prev => prev.map(w => (w.id === updatedOrCreated.id ? updatedOrCreated : w)));
+      } else {
+        updatedOrCreated = await apiFetch<Widget>('/widgets', {
+          method: 'POST',
+          body: JSON.stringify(widgetForm),
+          headers: { 'X-User-Id': '1' },
+        });
+        setWidgets(prev => [...prev, updatedOrCreated]);
+      }
+
+      // Immediately fetch data for the newly created/updated widget
+      if (updatedOrCreated.id && updatedOrCreated.data_source_id) {
+        fetchWidgetData(updatedOrCreated);
+      }
+
+      setShowWidgetModal(false);
+    } catch (e: any) {
+      console.error(e);
+      setError(e.message || 'Failed to save widget');
+    }
+  }
+
+  async function deleteWidget(id?: number) {
+    if (!id) return;
+    if (!window.confirm('Delete widget?')) return;
+    setError(null);
+    try {
+      await apiFetch<void>(`/widgets/${id}`, { method: 'DELETE', headers: { 'X-User-Id': '1' } });
+      setWidgets(prev => prev.filter(w => w.id !== id));
+      // Clean up widget data states
+      setWidgetApiData(prev => {
+        const newData = { ...prev };
+        delete newData[id];
+        return newData;
+      });
+      setWidgetLoadingState(prev => {
+        const newData = { ...prev };
+        delete newData[id];
+        return newData;
+      });
+      setWidgetErrors(prev => {
+        const newData = { ...prev };
+        delete newData[id];
+        return newData;
+      });
+    } catch (e: any) {
+      console.error(e);
+      setError(e.message || 'Failed to delete widget');
+    }
+  }
+
+  /* --- DataSource CRUD --- */
+
+  function openCreateDataSource() {
+    setDataSourceForm({ source_type: 'API', http_method: 'GET', is_cached: false, name: '', endpoint_url: '' });
+    setShowDataSourceModal(true);
+  }
+
+  function openEditDataSource(ds: DataSource) {
+    setDataSourceForm({ ...ds });
+    setShowDataSourceModal(true);
+  }
+
+  async function saveDataSource() {
+    setError(null);
+    try {
+      if (!dataSourceForm.name || !dataSourceForm.name.trim()) {
+        setError('Data source name required');
+        return;
+      }
+
+      // Fix for integer fields
+      const payload = {
+        ...dataSourceForm,
+        is_cached: dataSourceForm.is_cached ? 1 : 0,
+        cache_ttl_sec: dataSourceForm.cache_ttl_sec || null,
+      };
+
+      if (dataSourceForm.id) {
+        const updated = await apiFetch<DataSource>(`/datasources/${dataSourceForm.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+          headers: { 'X-User-Id': '1' },
+        });
+        setDataSources(prev => prev.map(d => (d.id === updated.id ? updated : d)));
+      } else {
+        const created = await apiFetch<DataSource>('/datasources', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+          headers: { 'X-User-Id': '1' },
+        });
+        setDataSources(prev => [...prev, created]);
+      }
+      setShowDataSourceModal(false);
+    } catch (e: any) {
+      console.error(e);
+      setError(e.message || 'Failed to save data source');
+    }
+  }
+
+  async function deleteDataSource(id?: number) {
+    if (!id) return;
+    if (!window.confirm('Delete data source?')) return;
+    setError(null);
+    try {
+      await apiFetch<void>(`/datasources/${id}`, { method: 'DELETE', headers: { 'X-User-Id': '1' } });
+      setDataSources(prev => prev.filter(d => d.id !== id));
+    } catch (e: any) {
+      console.error(e);
+      setError(e.message || 'Failed to delete data source');
+    }
+  }
+
+  /* --- Main render --- */
+
+  return (
+    <div className="mx-auto px-4 py-8">
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-3xl font-bold text-gray-800">Dashboard Manager</h1>
+        <div className="flex gap-2">
+          <button onClick={openCreateDashboard} className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg">Create Dashboard</button>
+          <button onClick={() => setActiveTab('dashboards')} className={`py-2 px-3 rounded ${activeTab === 'dashboards' ? 'bg-blue-100' : 'bg-gray-100'}`}>Dashboards</button>
+          <button onClick={() => { setActiveTab('widgets'); loadWidgets(); }} className={`py-2 px-3 rounded ${activeTab === 'widgets' ? 'bg-blue-100' : 'bg-gray-100'}`}>Widgets</button>
+          <button onClick={() => { setActiveTab('datasources'); loadDataSources(); }} className={`py-2 px-3 rounded ${activeTab === 'datasources' ? 'bg-blue-100' : 'bg-gray-100'}`}>Data Sources</button>
+        </div>
+      </div>
+
+      {error && <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">{error}</div>}
+
+      {loading ? (
+        <div className="flex justify-center items-center h-64"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" /></div>
+      ) : (
+        <>
+          {activeTab === 'dashboards' && (
+            <div>
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6 mb-6">
+                {dashboards.map(d => (
+                  <div key={d.id}>
+                    <DashboardCard 
+                      dashboard={d} 
+                      onSelect={() => { setSelectedDashboard(d); loadWidgets(d.id); }} 
+                      isSelected={selectedDashboard?.id === d.id}
+                    />
+                    <div className="mt-2 flex gap-2">
+                      <button onClick={() => openEditDashboard(d)} className="text-sm px-2 py-1 bg-white border rounded">Edit</button>
+                      <button onClick={() => deleteDashboard(d.id)} className="text-sm px-2 py-1 bg-red-600 text-white rounded">Delete</button>
+                    </div>
+                  </div>
+                ))}
+                {dashboards.length === 0 && <div className="col-span-full text-gray-500">No dashboards created</div>}
+              </div>
+
+              <div className="mb-8">
+                <h2 className="text-2xl font-semibold mb-4">Selected Dashboard</h2>
+                {selectedDashboard ? (
+                  <div className="bg-white rounded-lg p-6 shadow">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="text-xl font-bold">{selectedDashboard.name}</h3>
+                        <p className="text-gray-600">{selectedDashboard.description}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => openEditDashboard(selectedDashboard)} className="px-3 py-1 bg-gray-100 rounded">Edit</button>
+                        <button onClick={() => deleteDashboard(selectedDashboard.id)} className="px-3 py-1 bg-red-600 text-white rounded">Delete</button>
+                        <button onClick={openCreateWidgetForSelectedDashboard} className="px-3 py-1 bg-blue-600 text-white rounded">Add Widget</button>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 grid gap-4" style={{ gridTemplateColumns: `repeat(4, minmax(0, 1fr))` }}>
+                      {widgets.length === 0 ? <div className="col-span-4 p-8 bg-gray-50 rounded text-center text-gray-500">No widgets</div> : widgets.map(w => {
+                        const ds = dataSources.find(ds => ds.id === w.data_source_id);
+                        const apiData = w.id ? widgetApiData[w.id] : undefined;
+                        const isLoading = w.id ? widgetLoadingState[w.id] : false;
+                        const error = w.id ? widgetErrors[w.id] : undefined;
+                        return <WidgetComponent key={w.id} widget={w} dataSource={ds} apiData={apiData} isLoading={isLoading} error={error} />;
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-lg p-6 shadow text-center text-gray-500">No dashboard selected</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'widgets' && (
+            <div className="bg-white rounded-lg shadow overflow-hidden">
+              <div className="px-6 py-4 border-b flex justify-between items-center">
+                <h3 className="text-lg font-medium">Widgets</h3>
+                <div className="flex gap-2">
+                  <button onClick={openCreateWidgetForSelectedDashboard} className="px-3 py-1 bg-blue-600 text-white rounded">Add Widget (for selected dashboard)</button>
+                  <button onClick={() => loadWidgets()} className="px-3 py-1 bg-gray-200 rounded">Refresh</button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dashboard</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {widgets.map(w => (
+                      <tr key={w.id}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{w.title}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {w.visual_type}
+                          {w.chart_type && ` (${w.chart_type})`}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{dashboards.find(d => d.id === w.dashboard_id)?.name ?? '—'}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Row {w.position_row}, Col {w.position_col}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          <button className="text-blue-600 mr-3" onClick={() => openEditWidget(w)}>Edit</button>
+                          <button className="text-red-600" onClick={() => deleteWidget(w.id)}>Delete</button>
+                        </td>
+                      </tr>
+                    ))}
+                    {widgets.length === 0 && <tr><td colSpan={5} className="px-6 py-4 text-center text-gray-500">No widgets found.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'datasources' && (
+            <div className="bg-white rounded-lg shadow overflow-hidden">
+              <div className="px-6 py-4 border-b flex justify-between items-center">
+                <h3 className="text-lg font-medium">Data Sources</h3>
+                <div className="flex gap-2">
+                  <button onClick={openCreateDataSource} className="px-3 py-1 bg-blue-600 text-white rounded">Add Data Source</button>
+                  <button onClick={loadDataSources} className="px-3 py-1 bg-gray-200 rounded">Refresh</button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Endpoint</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cached</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {dataSources.map(ds => (
+                      <tr key={ds.id}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{ds.name}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{ds.source_type}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{ds.endpoint_url ?? '-'}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{ds.is_cached ? `Yes (${ds.cache_ttl_sec ?? 0}s)` : 'No'}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          <button className="text-blue-600 mr-3" onClick={() => openEditDataSource(ds)}>Edit</button>
+                          <button className="text-red-600" onClick={() => deleteDataSource(ds.id)}>Delete</button>
+                        </td>
+                      </tr>
+                    ))}
+                    {dataSources.length === 0 && <tr><td colSpan={5} className="px-6 py-4 text-center text-gray-500">No data sources</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Modals rendered outside main component to prevent re-rendering issues */}
+      {showDashboardModal && (
+        <DashboardModal
+          dashboardForm={dashboardForm}
+          setDashboardForm={setDashboardForm}
+          widgets={widgets}
+          openCreateWidgetForSelectedDashboard={openCreateWidgetForSelectedDashboard}
+          saveDashboard={saveDashboard}
+          setShowDashboardModal={setShowDashboardModal}
+          loadWidgets={loadWidgets}
+          loadDashboards={loadDashboards}
+        />
+      )}
+      {showWidgetModal && (
+        <WidgetModal
+          widgetForm={widgetForm}
+          setWidgetForm={setWidgetForm}
+          dataSources={dataSources}
+          saveWidget={saveWidget}
+          setShowWidgetModal={setShowWidgetModal}
+          fetchWidgetData={fetchWidgetData}
+        />
+      )}
+      {showDataSourceModal && (
+        <DataSourceModal
+          dataSourceForm={dataSourceForm}
+          setDataSourceForm={setDataSourceForm}
+          saveDataSource={saveDataSource}
+          setShowDataSourceModal={setShowDataSourceModal}
+        />
+      )}
+    </div>
+  );
+};
+
+export default DashboardManager;

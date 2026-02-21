@@ -1653,7 +1653,7 @@ const [page2MinUsers, setPage2MinUsers] = useState('');
       >
         <div className="flex-1 flex flex-col">
           <div className="flex items-center justify-between px-4 mb-6">
-            <span className="text-xl font-bold">{collapsedNew ? 'I' : 'Filters 11'}</span>
+            <span className="text-xl font-bold">{collapsedNew ? 'I' : 'Filters'}</span>
             <Button variant="ghost" size="icon" onClick={() => setCollapsedNew(!collapsedNew)}>
               <HiMenuAlt2 size={20} />
             </Button>

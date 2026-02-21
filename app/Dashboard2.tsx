@@ -285,7 +285,7 @@ const AdvancedWindowFunctionBuilder = ({ windowConfig, onChange, allFields, dime
   return (
     <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: 16, backgroundColor: "#f9f9f9" }}>
       <h4 style={{ margin: "0 0 16px 0", color: "#333" }}>Advanced Window Function Configuration</h4>
-<div style={{ marginBottom: 12 }}>
+      <div style={{ marginBottom: 12 }}>
         <label style={{ display: "block", fontWeight: 600, marginBottom: 4 }}>Direction of Calculation:</label>
         <select
           value={windowConfig.direction || "Table (down then across)"}
@@ -300,8 +300,6 @@ const AdvancedWindowFunctionBuilder = ({ windowConfig, onChange, allFields, dime
           Controls how the window function processes data across rows and columns
         </small>
       </div>
-      {/* Direction of Calculation */}
-    
 
       {/* Function Category */}
       <div style={{ marginBottom: 12 }}>
@@ -310,7 +308,7 @@ const AdvancedWindowFunctionBuilder = ({ windowConfig, onChange, allFields, dime
           value={windowConfig.functionCategory || "Aggregate"}
           onChange={(e) => updateWindow({
             functionCategory: e.target.value,
-            fn: FUNCTION_CATEGORIES[e.target.value][0] // Reset function when category changes
+            fn: FUNCTION_CATEGORIES[e.target.value][0]
           })}
           style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid #ddd" }}
         >
@@ -765,7 +763,6 @@ const JoinBuilder = ({ selectedTables, tableColumnsMap, joins, setJoins, baseTab
 };
 
 /* ----------------- Multi-Level Nested Query Builder ----------------- */
-// (unchanged except wired into main flow — keep your existing code for builder)
 const MultiLevelNestedQueryBuilder = ({ queryConfig, onChange, dimensionFields, measureFields, selectedTables, baseTable }) => {
   const defaultCfg = {
     levels: [
@@ -1765,47 +1762,51 @@ const ChartRenderer = ({ chartType, data, xKey, yKey, apiData = [], calcConfig =
 
   switch (chartType) {
     case "bar":
-  return (
-    <ResponsiveContainer width="100%" height={300}>
-      <BarChart
-        data={processedData}
-        margin={{ top: 20, right: 30, left: 20, bottom: 50 }}
-      >
-        <XAxis 
-          dataKey={xKey} 
-          angle={-45} 
-          textAnchor="end" 
-          interval={0} 
-          height={60} 
-          tick={{ fontSize: 12 }}
-        />
-        <YAxis />
-        <Tooltip />
-        <Legend />
-        <Bar dataKey={yKey} fill="#8884d8" maxBarSize={50} />
-      </BarChart>
-    </ResponsiveContainer>
-  );
+      return (
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart
+            data={processedData}
+            margin={{ top: 20, right: 30, left: 20, bottom: 50 }}
+          >
+            <XAxis 
+              dataKey={xKey} 
+              angle={-45} 
+              textAnchor="end" 
+              interval={0} 
+              height={60} 
+              tick={{ fontSize: 12 }}
+            />
+            <YAxis />
+            <Tooltip />
+            <Legend />
+            <Bar dataKey={yKey} fill="#8884d8" maxBarSize={50} />
+          </BarChart>
+        </ResponsiveContainer>
+      );
     case "line":
       return (
-        <LineChart width={600} height={300} data={processedData}>
-          <XAxis dataKey={xKey} />
-          <YAxis />
-          <Tooltip />
-          <Legend />
-          <Line type="monotone" dataKey={yKey} stroke="#8884d8" />
-        </LineChart>
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart data={processedData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+            <XAxis dataKey={xKey} />
+            <YAxis />
+            <Tooltip />
+            <Legend />
+            <Line type="monotone" dataKey={yKey} stroke="#8884d8" />
+          </LineChart>
+        </ResponsiveContainer>
       );
     case "pie":
       return (
-        <PieChart width={400} height={300}>
-          <Pie data={processedData} dataKey={yKey} nameKey={xKey} cx="50%" cy="50%" outerRadius={80} fill="#8884d8" label>
-            {processedData.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-            ))}
-          </Pie>
-          <Tooltip />
-        </PieChart>
+        <ResponsiveContainer width="100%" height={300}>
+          <PieChart>
+            <Pie data={processedData} dataKey={yKey} nameKey={xKey} cx="50%" cy="50%" outerRadius={80} fill="#8884d8" label>
+              {processedData.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+              ))}
+            </Pie>
+            <Tooltip />
+          </PieChart>
+        </ResponsiveContainer>
       );
     default:
       return <div>Select a chart type</div>;
@@ -1830,7 +1831,9 @@ const APIIntegration = ({
   const [loading, setLoading] = useState(false);
   const [sqlQuery, setSqlQuery] = useState("");
 
-  useEffect(() => { fetchTables(); // eslint-disable-next-line
+  useEffect(() => { 
+    fetchTables(); 
+    // eslint-disable-next-line
   }, []);
 
   useEffect(() => {
@@ -1981,41 +1984,39 @@ const APIIntegration = ({
 const App = () => {
   const [fields, setFields] = useState([]);
   const [data, setData] = useState([]);
-  const [apiData, setApiData] = useState([]); // original API data (used for FIXED LOD)
+  const [apiData, setApiData] = useState([]);
   const [filters, setFilters] = useState([]);
   const [columnsSlot, setColumnsSlot] = useState([]);
   const [rows, setRows] = useState([]);
   const [selectedChart, setSelectedChart] = useState("table");
-  const [partitionKey, setPartitionKey] = useState(""); // Graphlet faceting variable
+  const [partitionKey, setPartitionKey] = useState("");
+  const [pendingConfig, setPendingConfig] = useState(null);
 
   const [availableTables, setAvailableTables] = useState([]);
   const [tableColumnsMap, setTableColumnsMap] = useState({});
   const [selectedTables, setSelectedTables] = useState([]);
   const [baseTable, setBaseTable] = useState("");
-  const [joinGraph, setJoinGraph] = useState([]); // [{type,leftTable,leftColumn,rightTable,rightColumn}]
+  const [joinGraph, setJoinGraph] = useState([]);
 
   const [queryConfig, setQueryConfig] = useState(null);
   const [sqlPopupVisible, setSqlPopupVisible] = useState(false);
   const [generatedSql, setGeneratedSql] = useState("");
 
-  // New: popups for better layout
   const [showTablesPopup, setShowTablesPopup] = useState(false);
   const [showQueryPopup, setShowQueryPopup] = useState(false);
 
-  // Calculation config
   const [calcConfig, setCalcConfig] = useState({
     calculation: "SUM",
     cumulative: true,
-    frameType: "EXPANDING", // EXPANDING or FIXED
-    frameSize: 0, // if > 0 used for fixed sliding window size
-    direction: "FORWARD", // FORWARD or BACKWARD
-    lodScope: "INCLUDE", // FIXED/INCLUDE/EXCLUDE
-    lodFields: [], // dimensions for LOD
+    frameType: "EXPANDING",
+    frameSize: 0,
+    direction: "FORWARD",
+    lodScope: "INCLUDE",
+    lodFields: [],
   });
 
-  // X and Y fields explicitly selectable (Quarter and measure)
-  const [xField, setXField] = useState(""); // expected to be a date or dimension; will be converted to Quarter if needed
-  const [yField, setYField] = useState(""); // measure field name
+  const [xField, setXField] = useState("");
+  const [yField, setYField] = useState("");
 
   // Load initial mock fields/data
   useEffect(() => {
@@ -2038,7 +2039,7 @@ const App = () => {
       { Product: "B", Region: "South", Category: "Electronics", Sales: 1300, Quantity: 62, Date: "2024-04-01" },
     ];
     setData(mockData);
-    setApiData(mockData); // store original
+    setApiData(mockData);
   }, []);
 
   // Replace fields when selected tables/columns change
@@ -2055,16 +2056,13 @@ const App = () => {
 
       setFields(apiFields);
 
-      // KEEP existing filters/columns/rows if they still match the new fields.
       const newNames = apiFields.map(f => f.name);
       setFilters(prev => prev.filter(f => newNames.includes(f.name)));
       setColumnsSlot(prev => prev.filter(f => newNames.includes(f.name)));
       setRows(prev => prev.filter(f => newNames.includes(f.name)));
 
-      // Auto-select yField if not set and measures exist
       const measures = apiFields.filter(f => f.type === "Measure").map(f => f.name);
       if (!yField && measures.length > 0) setYField(measures[0]);
-      // Auto-select xField if not set and dimensions exist
       const dims = apiFields.filter(f => f.type === "Dimension").map(f => f.name);
       if (!xField && dims.length > 0) setXField(dims[0]);
 
@@ -2079,18 +2077,42 @@ const App = () => {
       ];
       setFields(mockFields);
 
-      // Keep selections that still exist on mock fields
       const mockNames = mockFields.map(f => f.name);
       setFilters(prev => prev.filter(f => mockNames.includes(f.name)));
       setColumnsSlot(prev => prev.filter(f => mockNames.includes(f.name)));
       setRows(prev => prev.filter(f => mockNames.includes(f.name)));
 
-      // ensure x/y defaults remain sensible
       if (!yField) setYField("Sales");
       if (!xField) setXField("Date");
     }
     // eslint-disable-next-line
   }, [JSON.stringify(selectedTables), JSON.stringify(tableColumnsMap)]);
+
+  // ✅ Phase 2: apply visual state AFTER fields are ready
+  useEffect(() => {
+    if (!pendingConfig) return;
+    if (fields.length === 0) return;
+
+    const fieldNames = fields.map(f => f.name);
+
+    const safe = (arr = []) =>
+      arr.filter(f => fieldNames.includes(f.name));
+
+    setFilters(safe(pendingConfig.filters));
+    setColumnsSlot(safe(pendingConfig.columnsSlot));
+    setRows(safe(pendingConfig.rows));
+
+    setXField(pendingConfig.xField || "");
+    setYField(pendingConfig.yField || "");
+    setSelectedChart(pendingConfig.selectedChart || "table");
+    setPartitionKey(pendingConfig.partitionKey || "");
+
+    if (pendingConfig.calcConfig) {
+      setCalcConfig(pendingConfig.calcConfig);
+    }
+
+    setPendingConfig(null);
+  }, [fields, pendingConfig]);
 
   const isNumericColumn = (columnName) => {
     const numericKeywords = ["id", "price", "total", "amount", "quantity", "count", "sales", "revenue", "stock"];
@@ -2114,358 +2136,349 @@ const App = () => {
   );
   const allFieldNames = React.useMemo(() => Array.from(new Set(fields.map((f) => f.name))), [fields]);
 
-  // xKey/yKey derived from state or fallback to selections
   const xKey = xField || (columnsSlot.find((f) => f.type === "Dimension")?.name) || (rows.find((f) => f.type === "Dimension")?.name) || "";
   const yKey = yField || (columnsSlot.find((f) => f.type === "Measure")?.name) || (rows.find((f) => f.type === "Measure")?.name) || "";
 
-  /* --------- Build FROM with joins --------- */
   const buildFromWithJoins = () => {
-  if (!baseTable) return "";
-  let sql = `FROM ${qid(baseTable)}`;
-  for (const j of joinGraph) {
-    if (!j.type || !j.leftTable || !j.leftColumn || !j.rightTable || !j.rightColumn) continue;
-    sql += `\n${j.type} JOIN ${qid(j.rightTable)} ON ${qtc(j.leftTable, j.leftColumn)} = ${qtc(j.rightTable, j.rightColumn)}`;
-  }
-  return sql;
-};
+    if (!baseTable) return "";
+    let sql = `FROM ${qid(baseTable)}`;
+    for (const j of joinGraph) {
+      if (!j.type || !j.leftTable || !j.leftColumn || !j.rightTable || !j.rightColumn) continue;
+      sql += `\n${j.type} JOIN ${qid(j.rightTable)} ON ${qtc(j.leftTable, j.leftColumn)} = ${qtc(j.rightTable, j.rightColumn)}`;
+    }
+    return sql;
+  };
 
-  /* --------- Multi-Level SQL generation (unchanged except minor references) --------- */
   const buildMultiLevelSQL = (columnsSlot, rows) => {
-  if (!baseTable) {
-    alert("Please select at least one table and set a base table");
-    return "";
-  }
-
-  const cfg = queryConfig || { levels: [] };
-  if (!cfg.levels || cfg.levels.length === 0) {
-    return `SELECT *\n${buildFromWithJoins()}\nLIMIT 100`;
-  }
-
-  const quoteField = (f) => {
-    if (f.includes(".")) {
-      const [t, c] = f.split(".");
-      return qtc(t, c);
-    }
-    return qid(f);
-  };
-
-  const makeWindowExpr = (
-  w,
-  quoteField,
-  dimensionFields = [],
-  columnsSlot = [],
-  rows = []
-) => {
-  const fn = (w.fn || "").toUpperCase();
-  const needsTarget = ["SUM", "AVG", "MIN", "MAX", "COUNT"];
-
-  let expr = fn;
-  if (needsTarget.includes(fn) && w.targetField) {
-    expr += `(${quoteField(w.targetField)})`;
-  } else if (!needsTarget.includes(fn)) {
-    expr += "()";
-  }
-
-  if (w.direction) {
-    expr = `/* ${w.direction} */ ` + expr;
-  }
-
-  expr += " OVER (";
-
-  const parts = [];
-
-  let partitionFields = [];
-  let orderFields = [];
-
-  // Use explicit partitionBy/orderBy if provided (especially for Specific Dimensions)
-  if (w.partitionBy && w.partitionBy.length > 0) {
-    partitionFields = w.partitionBy;
-  }
-  if (w.orderBy && w.orderBy.length > 0) {
-    orderFields = w.orderBy;
-  }
-
-  // If no explicit partition/order, determine based on direction
-  if (partitionFields.length === 0 && orderFields.length === 0) {
-    switch (w.direction) {
-      case "Table (across)":
-        partitionFields = rows
-          .filter((f) => dimensionFields.includes(f.name))
-          .map((f) => f.name);
-        orderFields = columnsSlot
-          .filter((f) => dimensionFields.includes(f.name))
-          .map((f) => ({ field: f.name, direction: "ASC" }));
-        break;
-
-      case "Table (down then across)":
-        partitionFields = columnsSlot
-          .filter((f) => dimensionFields.includes(f.name))
-          .map((f) => f.name);
-        orderFields = [
-          ...rows
-            .filter((f) => dimensionFields.includes(f.name))
-            .map((f) => ({ field: f.name, direction: "ASC" })),
-          ...columnsSlot
-            .filter((f) => dimensionFields.includes(f.name))
-            .map((f) => ({ field: f.name, direction: "ASC" })),
-        ];
-        break;
-
-      case "Pane (down)":
-        partitionFields = [
-          ...new Set(
-            [...rows, ...columnsSlot]
-              .filter((f) => dimensionFields.includes(f.name))
-              .map((f) => f.name)
-          ),
-        ];
-        orderFields = rows
-          .filter((f) => dimensionFields.includes(f.name))
-          .map((f) => ({ field: f.name, direction: "ASC" }));
-        break;
-
-      case "Cell":
-        partitionFields = [
-          ...new Set(
-            [...rows, ...columnsSlot]
-              .filter((f) => dimensionFields.includes(f.name))
-              .map((f) => f.name)
-          ),
-        ];
-        orderFields = [];
-        break;
-
-      case "Specific Dimensions":
-        partitionFields = [];
-        orderFields = [];
-        break;
-
-      case "Window Down":
-        partitionFields = columnsSlot.filter(f => dimensionFields.includes(f.name)).map(f => f.name);
-        orderFields = rows.filter(f => dimensionFields.includes(f.name)).map(f => ({ field: f.name, direction: "ASC" }));
-        break;
-
-      case "Window Across":
-        partitionFields = rows.filter(f => dimensionFields.includes(f.name)).map(f => f.name);
-        orderFields = columnsSlot.filter(f => dimensionFields.includes(f.name)).map(f => ({ field: f.name, direction: "ASC" }));
-        break;
-
-      case "Pane Across":
-        partitionFields = [
-          ...new Set(
-            [...rows, ...columnsSlot]
-              .filter((f) => dimensionFields.includes(f.name))
-              .map((f) => f.name)
-          ),
-        ];
-        orderFields = columnsSlot
-          .filter((f) => dimensionFields.includes(f.name))
-          .map((f) => ({ field: f.name, direction: "ASC" }));
-        break;
-
-      case "Pane Down":
-        partitionFields = [
-          ...new Set(
-            [...rows, ...columnsSlot]
-              .filter((f) => dimensionFields.includes(f.name))
-              .map((f) => f.name)
-          ),
-        ];
-        orderFields = rows
-          .filter((f) => dimensionFields.includes(f.name))
-          .map((f) => ({ field: f.name, direction: "ASC" }));
-        break;
-
-      case "Down Then Across":
-        partitionFields = columnsSlot
-          .filter((f) => dimensionFields.includes(f.name))
-          .map((f) => f.name);
-        orderFields = [
-          ...rows
-            .filter((f) => dimensionFields.includes(f.name))
-            .map((f) => ({ field: f.name, direction: "ASC" })),
-          ...columnsSlot
-            .filter((f) => dimensionFields.includes(f.name))
-            .map((f) => ({ field: f.name, direction: "ASC" })),
-        ];
-        break;
-
-      case "Across Then Down":
-        partitionFields = rows
-          .filter((f) => dimensionFields.includes(f.name))
-          .map((f) => f.name);
-        orderFields = [
-          ...columnsSlot
-            .filter((f) => dimensionFields.includes(f.name))
-            .map((f) => ({ field: f.name, direction: "ASC" })),
-          ...rows
-            .filter((f) => dimensionFields.includes(f.name))
-            .map((f) => ({ field: f.name, direction: "ASC" })),
-        ];
-        break;
-
-      default:
-        partitionFields = [];
-        orderFields = [];
-    }
-  }
-
-    if (partitionFields.length > 0) {
-      parts.push(`PARTITION BY ${partitionFields.map(quoteField).join(", ")}`);
+    if (!baseTable) {
+      alert("Please select at least one table and set a base table");
+      return "";
     }
 
-    if (orderFields.length > 0) {
-      const orderClauses = orderFields.map(
-        (o) => `${quoteField(o.field)} ${o.direction || "ASC"}`
-      );
-      parts.push(`ORDER BY ${orderClauses.join(", ")}`);
+    const cfg = queryConfig || { levels: [] };
+    if (!cfg.levels || cfg.levels.length === 0) {
+      return `SELECT *\n${buildFromWithJoins()}\nLIMIT 100`;
     }
 
-    expr += parts.join(" ");
+    const quoteField = (f) => {
+      if (f.includes(".")) {
+        const [t, c] = f.split(".");
+        return qtc(t, c);
+      }
+      return qid(f);
+    };
 
-    const hasOrder = orderFields.length > 0;
+    const makeWindowExpr = (
+      w,
+      quoteField,
+      dimensionFields = [],
+      columnsSlot = [],
+      rows = []
+    ) => {
+      const fn = (w.fn || "").toUpperCase();
+      const needsTarget = ["SUM", "AVG", "MIN", "MAX", "COUNT"];
 
-    if (hasOrder && w.frameType && w.frameStart && w.frameEnd) {
-      let frameSpec = ` ${w.frameType} BETWEEN `;
+      let expr = fn;
+      if (needsTarget.includes(fn) && w.targetField) {
+        expr += `(${quoteField(w.targetField)})`;
+      } else if (!needsTarget.includes(fn)) {
+        expr += "()";
+      }
 
-      if (w.frameStart === "N PRECEDING") {
-        frameSpec += `${w.frameStartValue || 1} PRECEDING`;
-      } else if (w.frameStart === "N FOLLOWING") {
-        frameSpec += `${w.frameStartValue || 1} FOLLOWING`;
+      if (w.direction) {
+        expr = `/* ${w.direction} */ ` + expr;
+      }
+
+      expr += " OVER (";
+
+      const parts = [];
+
+      let partitionFields = [];
+      let orderFields = [];
+
+      if (w.partitionBy && w.partitionBy.length > 0) {
+        partitionFields = w.partitionBy;
+      }
+      if (w.orderBy && w.orderBy.length > 0) {
+        orderFields = w.orderBy;
+      }
+
+      if (partitionFields.length === 0 && orderFields.length === 0) {
+        switch (w.direction) {
+          case "Table (across)":
+            partitionFields = rows
+              .filter((f) => dimensionFields.includes(f.name))
+              .map((f) => f.name);
+            orderFields = columnsSlot
+              .filter((f) => dimensionFields.includes(f.name))
+              .map((f) => ({ field: f.name, direction: "ASC" }));
+            break;
+
+          case "Table (down then across)":
+            partitionFields = columnsSlot
+              .filter((f) => dimensionFields.includes(f.name))
+              .map((f) => f.name);
+            orderFields = [
+              ...rows
+                .filter((f) => dimensionFields.includes(f.name))
+                .map((f) => ({ field: f.name, direction: "ASC" })),
+              ...columnsSlot
+                .filter((f) => dimensionFields.includes(f.name))
+                .map((f) => ({ field: f.name, direction: "ASC" })),
+            ];
+            break;
+
+          case "Pane (down)":
+            partitionFields = [
+              ...new Set(
+                [...rows, ...columnsSlot]
+                  .filter((f) => dimensionFields.includes(f.name))
+                  .map((f) => f.name)
+              ),
+            ];
+            orderFields = rows
+              .filter((f) => dimensionFields.includes(f.name))
+              .map((f) => ({ field: f.name, direction: "ASC" }));
+            break;
+
+          case "Cell":
+            partitionFields = [
+              ...new Set(
+                [...rows, ...columnsSlot]
+                  .filter((f) => dimensionFields.includes(f.name))
+                  .map((f) => f.name)
+              ),
+            ];
+            orderFields = [];
+            break;
+
+          case "Specific Dimensions":
+            partitionFields = [];
+            orderFields = [];
+            break;
+
+          case "Window Down":
+            partitionFields = columnsSlot.filter(f => dimensionFields.includes(f.name)).map(f => f.name);
+            orderFields = rows.filter(f => dimensionFields.includes(f.name)).map(f => ({ field: f.name, direction: "ASC" }));
+            break;
+
+          case "Window Across":
+            partitionFields = rows.filter(f => dimensionFields.includes(f.name)).map(f => f.name);
+            orderFields = columnsSlot.filter(f => dimensionFields.includes(f.name)).map(f => ({ field: f.name, direction: "ASC" }));
+            break;
+
+          case "Pane Across":
+            partitionFields = [
+              ...new Set(
+                [...rows, ...columnsSlot]
+                  .filter((f) => dimensionFields.includes(f.name))
+                  .map((f) => f.name)
+              ),
+            ];
+            orderFields = columnsSlot
+              .filter((f) => dimensionFields.includes(f.name))
+              .map((f) => ({ field: f.name, direction: "ASC" }));
+            break;
+
+          case "Pane Down":
+            partitionFields = [
+              ...new Set(
+                [...rows, ...columnsSlot]
+                  .filter((f) => dimensionFields.includes(f.name))
+                  .map((f) => f.name)
+              ),
+            ];
+            orderFields = rows
+              .filter((f) => dimensionFields.includes(f.name))
+              .map((f) => ({ field: f.name, direction: "ASC" }));
+            break;
+
+          case "Down Then Across":
+            partitionFields = columnsSlot
+              .filter((f) => dimensionFields.includes(f.name))
+              .map((f) => f.name);
+            orderFields = [
+              ...rows
+                .filter((f) => dimensionFields.includes(f.name))
+                .map((f) => ({ field: f.name, direction: "ASC" })),
+              ...columnsSlot
+                .filter((f) => dimensionFields.includes(f.name))
+                .map((f) => ({ field: f.name, direction: "ASC" })),
+            ];
+            break;
+
+          case "Across Then Down":
+            partitionFields = rows
+              .filter((f) => dimensionFields.includes(f.name))
+              .map((f) => f.name);
+            orderFields = [
+              ...columnsSlot
+                .filter((f) => dimensionFields.includes(f.name))
+                .map((f) => ({ field: f.name, direction: "ASC" })),
+              ...rows
+                .filter((f) => dimensionFields.includes(f.name))
+                .map((f) => ({ field: f.name, direction: "ASC" })),
+            ];
+            break;
+
+          default:
+            partitionFields = [];
+            orderFields = [];
+        }
+      }
+
+      if (partitionFields.length > 0) {
+        parts.push(`PARTITION BY ${partitionFields.map(quoteField).join(", ")}`);
+      }
+
+      if (orderFields.length > 0) {
+        const orderClauses = orderFields.map(
+          (o) => `${quoteField(o.field)} ${o.direction || "ASC"}`
+        );
+        parts.push(`ORDER BY ${orderClauses.join(", ")}`);
+      }
+
+      expr += parts.join(" ");
+
+      const hasOrder = orderFields.length > 0;
+
+      if (hasOrder && w.frameType && w.frameStart && w.frameEnd) {
+        let frameSpec = ` ${w.frameType} BETWEEN `;
+
+        if (w.frameStart === "N PRECEDING") {
+          frameSpec += `${w.frameStartValue || 1} PRECEDING`;
+        } else if (w.frameStart === "N FOLLOWING") {
+          frameSpec += `${w.frameStartValue || 1} FOLLOWING`;
+        } else {
+          frameSpec += w.frameStart;
+        }
+
+        frameSpec += " AND ";
+
+        if (w.frameEnd === "N PRECEDING") {
+          frameSpec += `${w.frameEndValue || 1} PRECEDING`;
+        } else if (w.frameEnd === "N FOLLOWING") {
+          frameSpec += `${w.frameEndValue || 1} FOLLOWING`;
+        } else {
+          frameSpec += w.frameEnd;
+        }
+
+        expr += frameSpec;
+      }
+
+      expr += ")";
+
+      if (w.alias) {
+        expr += ` AS ${qid(w.alias)}`;
+      }
+
+      return expr;
+    };
+
+    const buildLevelSQL = (level, isOutermost = false) => {
+      const selectFields = [];
+
+      if (level.select && level.select.length > 0) {
+        selectFields.push(...level.select.map(quoteField));
+      }
+
+      if (level.windows && level.windows.length > 0) {
+        selectFields.push(
+          ...level.windows.map((w) =>
+            makeWindowExpr(w, quoteField, dimensionFields, columnsSlot, rows)
+          )
+        );
+      }
+
+      if (selectFields.length === 0) {
+        selectFields.push("*");
+      }
+
+      let sql = `SELECT ${selectFields.join(",\n       ")}`;
+
+      if (level.isSubquery && level.from) {
+        sql += `\n${level.from}`;
+      } else if (!level.isSubquery) {
+        sql += `\n${buildFromWithJoins()}`;
+      }
+
+      if (level.where && level.where.length > 0) {
+        const conditions = level.where.filter((c) => c.trim());
+        if (conditions.length > 0) {
+          sql += `\nWHERE ${conditions.join(" AND ")}`;
+        }
+      }
+
+      if (level.groupBy && level.groupBy.length > 0) {
+        sql += `\nGROUP BY ${level.groupBy.map(quoteField).join(", ")}`;
+      }
+
+      if (level.having && level.having.length > 0) {
+        const conditions = level.having.filter((c) => c.trim());
+        if (conditions.length > 0) {
+          sql += `\nHAVING ${conditions.join(" AND ")}`;
+        }
+      }
+
+      if (level.orderBy && level.orderBy.length > 0) {
+        const orderClauses = level.orderBy
+          .filter((o) => o.field)
+          .map((o) => `${quoteField(o.field)} ${o.direction || "ASC"}`);
+        if (orderClauses.length > 0) {
+          sql += `\nORDER BY ${orderClauses.join(", ")}`;
+        }
+      }
+
+      if (level.limit && level.limit > 0) {
+        sql += `\nLIMIT ${level.limit}`;
+      }
+
+      return sql;
+    };
+
+    const levels = [...cfg.levels].sort((a, b) => a.id - b.id);
+
+    if (levels.length === 1) {
+      return buildLevelSQL(levels[0], true);
+    }
+
+    let sql = "";
+    for (let i = 0; i < levels.length; i++) {
+      const level = levels[i];
+      const isOutermost = i === 0;
+      const isInnermost = i === levels.length - 1;
+
+      if (isOutermost) {
+        sql = buildLevelSQL(level, true);
       } else {
-        frameSpec += w.frameStart;
+        const prevSQL = sql;
+        const currentLevelSQL = buildLevelSQL(level);
+
+        if (currentLevelSQL.match(/FROM\s+\(/i)) {
+          sql = currentLevelSQL.replace(
+            /FROM\s+\([^)]*\)/i,
+            `FROM (\n${prevSQL
+              .split("\n")
+              .map((line) => "  " + line)
+              .join("\n")}\n) AS level_${level.id - 1}`
+          );
+        } else {
+          sql = `${currentLevelSQL}\nFROM (\n${prevSQL
+            .split("\n")
+            .map((line) => "  " + line)
+            .join("\n")}\n) AS level_${level.id - 1}`;
+        }
       }
-
-      frameSpec += " AND ";
-
-      if (w.frameEnd === "N PRECEDING") {
-        frameSpec += `${w.frameEndValue || 1} PRECEDING`;
-      } else if (w.frameEnd === "N FOLLOWING") {
-        frameSpec += `${w.frameEndValue || 1} FOLLOWING`;
-      } else {
-        frameSpec += w.frameEnd;
-      }
-
-      expr += frameSpec;
-    }
-
-    expr += ")";
-
-    if (w.alias) {
-      expr += ` AS ${qid(w.alias)}`;
-    }
-
-    return expr;
-  };
-
-  const buildLevelSQL = (level, isOutermost = false) => {
-    const selectFields = [];
-
-    // Regular fields
-    if (level.select && level.select.length > 0) {
-      selectFields.push(...level.select.map(quoteField));
-    }
-
-    // Window functions
-    if (level.windows && level.windows.length > 0) {
-      selectFields.push(
-        ...level.windows.map((w) =>
-          makeWindowExpr(w, quoteField, dimensionFields, columnsSlot, rows)
-        )
-      );
-    }
-
-    if (selectFields.length === 0) {
-      selectFields.push("*");
-    }
-
-    let sql = `SELECT ${selectFields.join(",\n       ")}`;
-
-    if (level.isSubquery && level.from) {
-      sql += `\n${level.from}`;
-    } else if (!level.isSubquery) {
-      sql += `\n${buildFromWithJoins()}`;
-    }
-
-    if (level.where && level.where.length > 0) {
-      const conditions = level.where.filter((c) => c.trim());
-      if (conditions.length > 0) {
-        sql += `\nWHERE ${conditions.join(" AND ")}`;
-      }
-    }
-
-    if (level.groupBy && level.groupBy.length > 0) {
-      sql += `\nGROUP BY ${level.groupBy.map(quoteField).join(", ")}`;
-    }
-
-    if (level.having && level.having.length > 0) {
-      const conditions = level.having.filter((c) => c.trim());
-      if (conditions.length > 0) {
-        sql += `\nHAVING ${conditions.join(" AND ")}`;
-      }
-    }
-
-    if (level.orderBy && level.orderBy.length > 0) {
-      const orderClauses = level.orderBy
-        .filter((o) => o.field)
-        .map((o) => `${quoteField(o.field)} ${o.direction || "ASC"}`);
-      if (orderClauses.length > 0) {
-        sql += `\nORDER BY ${orderClauses.join(", ")}`;
-      }
-    }
-
-    if (level.limit && level.limit > 0) {
-      sql += `\nLIMIT ${level.limit}`;
     }
 
     return sql;
   };
 
-  // Build from outermost to innermost
-  const levels = [...cfg.levels].sort((a, b) => a.id - b.id);
-
-  if (levels.length === 1) {
-    return buildLevelSQL(levels[0], true);
-  }
-
-  let sql = "";
-  for (let i = 0; i < levels.length; i++) {
-    const level = levels[i];
-    const isOutermost = i === 0;
-    const isInnermost = i === levels.length - 1;
-
-    if (isOutermost) {
-      sql = buildLevelSQL(level, true);
-    } else {
-      const prevSQL = sql;
-      const currentLevelSQL = buildLevelSQL(level);
-
-      if (currentLevelSQL.match(/FROM\s+\(/i)) {
-        sql = currentLevelSQL.replace(
-          /FROM\s+\([^)]*\)/i,
-          `FROM (\n${prevSQL
-            .split("\n")
-            .map((line) => "  " + line)
-            .join("\n")}\n) AS level_${level.id - 1}`
-        );
-      } else {
-        sql = `${currentLevelSQL}\nFROM (\n${prevSQL
-          .split("\n")
-          .map((line) => "  " + line)
-          .join("\n")}\n) AS level_${level.id - 1}`;
-      }
-    }
-  }
-
-  return sql;
-};
-
- 
   const generateAndShowSQL = () => {
-  const sql = buildMultiLevelSQL(columnsSlot, rows);
-  setGeneratedSql(sql);
-  setSqlPopupVisible(true);
-};
+    const sql = buildMultiLevelSQL(columnsSlot, rows);
+    setGeneratedSql(sql);
+    setSqlPopupVisible(true);
+  };
 
   const executeGeneratedSQL = async () => {
     setSqlPopupVisible(false);
@@ -2558,6 +2571,96 @@ const App = () => {
     setYField("");
   };
 
+  const saveConfiguration = async () => {
+    if (!window.confirm("Save current configuration? This will store all your settings.")) return;
+
+    const configName = prompt("Enter a name for this configuration:");
+    if (!configName || !configName.trim()) {
+      alert("Configuration name is required");
+      return;
+    }
+
+    const configData = {
+      name: configName.trim(),
+      selectedTables: selectedTables,
+      baseTable: baseTable,
+      joinGraph: joinGraph,
+      filters: filters,
+      columnsSlot: columnsSlot,
+      rows: rows,
+      selectedChart: selectedChart,
+      partitionKey: partitionKey,
+      xField: xField,
+      yField: yField,
+      calcConfig: calcConfig,
+      queryConfig: queryConfig,
+      timestamp: new Date().toISOString()
+    };
+
+    try {
+      const response = await fetch('https://intelligentsalesman.com/ism1/API/tableu/save_config.php', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(configData)
+      });
+
+      const result = await response.json();
+      
+      if (result.success) {
+        alert(`Configuration "${configName}" saved successfully! ID: ${result.id}`);
+      } else {
+        alert('Failed to save configuration: ' + (result.error || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Error saving configuration:', error);
+      alert('Error saving configuration. Check console for details.');
+    }
+  };
+
+  const loadConfiguration = async () => {
+    const configId = prompt("Enter configuration ID to load:");
+    if (!configId) return;
+
+    try {
+      const response = await fetch(
+        `https://intelligentsalesman.com/ism1/API/tableu/load_config.php?id=${configId}`
+      );
+      const result = await response.json();
+
+      if (!result.success || !result.data) {
+        alert("Failed to load configuration");
+        return;
+      }
+
+      const cfg = result.data;
+
+      // ✅ Phase 1: schema-level restore
+      setSelectedTables(cfg.selectedTables || []);
+      setBaseTable(cfg.baseTable || "");
+      setJoinGraph(cfg.joinGraph || []);
+      setQueryConfig(cfg.queryConfig || null);
+
+      // ✅ Hold visual state until fields are rebuilt
+      setPendingConfig({
+        filters: cfg.filters || [],
+        columnsSlot: cfg.columnsSlot || [],
+        rows: cfg.rows || [],
+        xField: cfg.xField || "",
+        yField: cfg.yField || "",
+        selectedChart: cfg.selectedChart || "table",
+        partitionKey: cfg.partitionKey || "",
+        calcConfig: cfg.calcConfig || null,
+      });
+
+      alert(`Configuration "${cfg.name}" loaded. Restoring visuals…`);
+    } catch (err) {
+      console.error(err);
+      alert("Error loading configuration");
+    }
+  };
+
   return (
     <DndProvider backend={HTML5Backend}>
       <div style={{ display: "flex", height: "100vh", fontFamily: "Arial, sans-serif" }}>
@@ -2627,6 +2730,36 @@ const App = () => {
               }}
             >
               ♻️ Clear All Selections
+            </button>
+
+            <button
+              onClick={saveConfiguration}
+              style={{
+                padding: "8px 12px",
+                backgroundColor: "#6f42c1",
+                color: "white",
+                border: "none",
+                borderRadius: 4,
+                cursor: "pointer",
+                fontSize: 12,
+              }}
+            >
+              💾 Save Configuration
+            </button>
+
+            <button
+              onClick={loadConfiguration}
+              style={{
+                padding: "8px 12px",
+                backgroundColor: "#fd7e14",
+                color: "white",
+                border: "none",
+                borderRadius: 4,
+                cursor: "pointer",
+                fontSize: 12,
+              }}
+            >
+              📂 Load Configuration
             </button>
           </div>
 
@@ -2861,5 +2994,7 @@ const App = () => {
     </DndProvider>
   );
 };
+
+
 
 export default App;

@@ -25,13 +25,21 @@ import PivotTable from './PivotTable'; // Adjust path as needed
 import AnimatedCharts from './AnimatedCharts'; // Adjust path as needed
 import NewPivotTable from './NewPivotTable'; // Adjust path as needed
 import HierarchyTable from './HierarchyTable'; // Adjust path as needed
+import PivotTableDragDrop from './PivotTableDragDrop'; // Adjust path as needed
 import DashboardCreate from './DashboardCreate'; // Adjust path as needed
 import DashboardCreateNew from './DashboardCreateNew'; // Adjust path as needed GroupsVsSets
 import DashboardFilter from './DashboardFilternew'; // Adjust path as needed
 import ParameterPanel from './ParameterPanel'; // Adjust path as needed
 import Dashboard1 from './Dashboard1'; // Adjust path as needed Build
-import Dashboard2 from './Dashboard2'; // Adjust path as needed
+import Salesforcereport from './Salesforcereport'; // Adjust path as needed Build FilterManager
+import FilterManager from './FilterManager'; // Adjust path as needed Build DashboardManager
+import ReportManager from './ReportManager'; // Adjust path as needed Build
+import DashboardManager from './DashboardManager'; // Adjust path as needed Build
+import VisualManager from './VisualManager'; // Adjust path as needed Build
+import AccountListPage from './AccountListPage'; // Adjust path as needed Build 
+import Dashboard2 from './Dashboard2'; // Adjust path as needed 
 import Build from './Build'; 
+import GroupsVsSetsNew from './GroupsVsSetsNew'; // Adjust path as needed
 import GroupsVsSets from './GroupsVsSets'; // Adjust path as needed
 // import ContactContent from './ContactContent'; // Adjust path as needed BookmarkTabs
 import { ContactContent } from './ContactContent';
@@ -2097,11 +2105,13 @@ const [panel1SelectedMonths, setPanel1SelectedMonths] = useState([]);
     { name: 'AnimatedCharts', icon: <FaStar /> },
      { name: 'NewPivotTable', icon: <FaStar /> },
      { name: 'Hierarchy Table', icon: <FaFileAlt /> },
+     { name: 'PivotTableDragDrop', icon: <FaFileAlt /> },
       { name: 'DashboardCreate', icon: <FaFileAlt /> },
       { name: 'DashboardCreateNew', icon: <FaFileAlt /> },
       { name: 'DashboardFilter', icon: <FaFile /> },
       { name: 'ParameterPanel', icon: <FaFile /> }, 
       { name: 'GroupsVsSets', icon: <FaFile /> }, 
+      { name: 'GroupsVsSetsNew', icon: <FaFile /> }, 
      
   ];
 const [themeOpen, setThemeOpen] = useState(false);
@@ -2748,6 +2758,78 @@ const FormWorkflowContent = () => {
             </button>
             <button
               onClick={() => {
+                setSelectedMenu('DashboardManager');
+                setAboutSubMenuOpen(false);
+              }}
+              className={`font-medium ${
+                selectedMenu === 'DashboardManager' ? 'text-indigo-600' : 'text-gray-700 hover:text-gray-900'
+              }`}
+              type="button"
+            >
+              DashboardManager
+            </button>
+            <button
+              onClick={() => {
+                setSelectedMenu('ReportManager');
+                setAboutSubMenuOpen(false);
+              }}
+              className={`font-medium ${
+                selectedMenu === 'ReportManager' ? 'text-indigo-600' : 'text-gray-700 hover:text-gray-900'
+              }`}
+              type="button"
+            >
+              ReportManager
+            </button>
+            <button
+              onClick={() => {
+                setSelectedMenu('FilterManager');
+                setAboutSubMenuOpen(false);
+              }}
+              className={`font-medium ${
+                selectedMenu === 'FilterManager' ? 'text-indigo-600' : 'text-gray-700 hover:text-gray-900'
+              }`}
+              type="button"
+            >
+              FilterManager
+            </button>
+            <button
+              onClick={() => {
+                setSelectedMenu('VisualManager');
+                setAboutSubMenuOpen(false);
+              }}
+              className={`font-medium ${
+                selectedMenu === 'VisualManager' ? 'text-indigo-600' : 'text-gray-700 hover:text-gray-900'
+              }`}
+              type="button"
+            >
+              VisualManager
+            </button>
+            <button
+              onClick={() => {
+                setSelectedMenu('AccountListPage');
+                setAboutSubMenuOpen(false);
+              }}
+              className={`font-medium ${
+                selectedMenu === 'AccountListPage' ? 'text-indigo-600' : 'text-gray-700 hover:text-gray-900'
+              }`}
+              type="button"
+            >
+              AccountListPage
+            </button>
+            <button
+              onClick={() => {
+                setSelectedMenu('Salesforcereport');
+                setAboutSubMenuOpen(false);
+              }}
+              className={`font-medium ${
+                selectedMenu === 'Salesforcereport' ? 'text-indigo-600' : 'text-gray-700 hover:text-gray-900'
+              }`}
+              type="button"
+            >
+              Salesforcereport
+            </button>
+            <button
+              onClick={() => {
                 setSelectedMenu('Dashboard1');
                 setAboutSubMenuOpen(false);
               }}
@@ -3199,12 +3281,14 @@ const FormWorkflowContent = () => {
     <NewCopyPast />
   )   : selectedMenu === 'MapsAndTable' ? (  // <-- New condition NewCopyPast PivotTable 
     <MapsAndTable />
-  )   : selectedMenu === 'PivotTable' ? (  // <-- New condition NewCopyPast PivotTable NewPivotTable HierarchyTable
+  )   : selectedMenu === 'PivotTable' ? (  // <-- New condition NewCopyPast PivotTable NewPivotTable PivotTableDragDrop
     <PivotTable />
   )  : selectedMenu === 'AnimatedCharts' ? (  // <-- New condition NewCopyPast PivotTable
     <AnimatedCharts />
   )  : selectedMenu === 'NewPivotTable' ? (  // <-- New condition NewCopyPast PivotTable DashboardCreate DashboardFilter 
     <NewPivotTable />
+  )  : selectedMenu === 'PivotTableDragDrop' ? (  // <-- New condition NewCopyPast PivotTable
+    <PivotTableDragDrop />
   )  : selectedMenu === 'Hierarchy Table' ? (  // <-- New condition NewCopyPast PivotTable
     <HierarchyTable />
   )  : selectedMenu === 'DashboardCreate' ? (  // <-- New condition NewCopyPast PivotTable
@@ -3215,14 +3299,28 @@ const FormWorkflowContent = () => {
     <DashboardFilter />
   ) : selectedMenu === 'ParameterPanel' ? (  // <-- New condition NewCopyPast PivotTable
     <ParameterPanel />
+  ) : selectedMenu === 'GroupsVsSetsNew' ? (  // <-- New condition NewCopyPast PivotTable Mapsxxxxxxxxx
+    <GroupsVsSetsNew />
   ) : selectedMenu === 'GroupsVsSets' ? (  // <-- New condition NewCopyPast PivotTable Mapsxxxxxxxxx
     <GroupsVsSets />
   ) : selectedMenu === 'Contact' ? (  // <-- New condition NewCopyPast PivotTable BookmarkTabs
     <ContactContent />
-  ) : selectedMenu === 'Maps' ? (  // <-- New condition NewCopyPast PivotTable Dashboard1
+  ) : selectedMenu === 'Maps' ? (  // <-- New condition NewCopyPast PivotTable Dashboard1 Salesforcereport FilterDisplay
     <MapsContent />
   ) : selectedMenu === 'Dashboard1' ? (  // <-- New condition NewCopyPast PivotTable Dashboard1 Pane
     <Dashboard1 />
+  ) : selectedMenu === 'Salesforcereport' ? (  // <-- New condition NewCopyPast PivotTable Dashboard1 Pane DashboardManager
+    <Salesforcereport />
+  ) : selectedMenu === 'FilterManager' ? (  // <-- New condition NewCopyPast PivotTable Dashboard1 Pane
+    <FilterManager />
+  ) : selectedMenu === 'ReportManager' ? (  // <-- New condition NewCopyPast PivotTable Dashboard1 Pane
+    <ReportManager />
+  ) : selectedMenu === 'DashboardManager' ? (  // <-- New condition NewCopyPast PivotTable Dashboard1 Pane
+    <DashboardManager />
+  ) : selectedMenu === 'VisualManager' ? (  // <-- New condition NewCopyPast PivotTable Dashboard1 Pane
+    <VisualManager />
+  ): selectedMenu === 'AccountListPage' ? (  // <-- New condition NewCopyPast PivotTable Dashboard1 Pane
+    <AccountListPage />
   ) : selectedMenu === 'BookmarkTabs' ? (  // <-- New condition NewCopyPast PivotTable Dashboard1
     <BookmarkTabs />
   ) : selectedMenu === 'Dashboard2' ? (  // <-- New condition NewCopyPast PivotTable Dashboard1
