@@ -2879,18 +2879,6 @@ const FormWorkflowContent = () => {
             >
               BookmarkTabs
             </button>
-            <button
-              onClick={() => {
-                setSelectedMenu('Pane');
-                setAboutSubMenuOpen(false);
-              }}
-              className={`font-medium ${
-                selectedMenu === 'Pane' ? 'text-indigo-600' : 'text-gray-700 hover:text-gray-900'
-              }`}
-              type="button"
-            >
-              Pane
-            </button>
              <button
               onClick={() => {
                 setSelectedMenu('Pane1');
