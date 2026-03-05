@@ -1,28 +1,18 @@
-FROM node:22-slim AS builder
+FROM node:22-slim
 
 WORKDIR /app
 
 COPY package*.json ./
-
 RUN npm install --legacy-peer-deps
 
 COPY . .
 
 RUN npm run build
 
-
-FROM node:22-slim AS runner
-
-WORKDIR /app
+EXPOSE 8080
 
 ENV NODE_ENV=production
 ENV PORT=8080
 ENV HOSTNAME=0.0.0.0
 
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
-
-EXPOSE 8080
-
-CMD ["node", "server.js"]
+CMD ["npm", "run", "start"]
