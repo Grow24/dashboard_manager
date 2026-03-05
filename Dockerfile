@@ -36,17 +36,18 @@ ENV HOSTNAME="0.0.0.0"
 # Copy public assets
 COPY --from=builder /app/public ./public
 
-# Copy standalone server files (includes server.js and minimal node_modules)
-# Keep the .next/standalone structure intact
+# Copy standalone server files - keep the structure intact
 COPY --from=builder /app/.next/standalone ./.next/standalone
 
-# Copy static files - CRITICAL: must be at .next/static relative to where server.js runs
-# The standalone server expects static files at .next/static
-COPY --from=builder /app/.next/static ./.next/static
+# Copy static files - CRITICAL: must be at .next/static inside the standalone directory
+# When using output: standalone, Next.js doesn't copy .next/static into standalone by default
+# The standalone server expects static files at .next/standalone/.next/static
+RUN mkdir -p .next/standalone/.next
+COPY --from=builder /app/.next/static ./.next/standalone/.next/static
 
 # Expose port
 EXPOSE 8080
 
 # Start the application using the standalone server
-# IMPORTANT: Use the correct path to the standalone server
+# The server.js is in the standalone directory
 CMD ["node", ".next/standalone/server.js"]
