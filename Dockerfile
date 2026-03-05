@@ -36,10 +36,11 @@ ENV HOSTNAME="0.0.0.0"
 # Copy public assets
 COPY --from=builder /app/public ./public
 
-# Copy standalone server
+# Copy standalone server files (includes server.js and minimal node_modules)
 COPY --from=builder /app/.next/standalone ./
 
-# Copy static files (including CSS)
+# Copy static files - CRITICAL: must be at .next/static relative to server.js
+# The standalone output may already have a .next directory, so we copy static into it
 COPY --from=builder /app/.next/static ./.next/static
 
 # Expose port
