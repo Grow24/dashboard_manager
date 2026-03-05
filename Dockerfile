@@ -1,5 +1,5 @@
 # Use the official Node.js runtime as base image
-FROM node:22-slim
+FROM node:22-slim AS builder
 
 WORKDIR /app
 
@@ -24,12 +24,26 @@ RUN rm -rf .next
 # Build the application
 RUN npm run build
 
+# Production image
+FROM node:22-slim AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=8080
+ENV HOSTNAME="0.0.0.0"
+
+# Copy public assets
+COPY --from=builder /app/public ./public
+
+# Copy standalone server
+COPY --from=builder /app/.next/standalone ./
+
+# Copy static files (including CSS)
+COPY --from=builder /app/.next/static ./.next/static
+
 # Expose port
 EXPOSE 8080
 
-ENV PORT=8080
-ENV HOSTNAME="0.0.0.0"
-ENV NODE_ENV=production
-
-# Start the application
-CMD ["npm", "run", "start"]
+# Start the application using the standalone server
+CMD ["node", "server.js"]
