@@ -1,4 +1,7 @@
+
 FROM node:22-slim
+LABEL "language"="nodejs"
+LABEL "framework"="next.js"
 
 WORKDIR /app
 
@@ -13,10 +16,10 @@ ENV NODE_ENV=production
 ENV PORT=8080
 ENV HOSTNAME="0.0.0.0"
 
-# Copy standalone server and all necessary files
-COPY --from=0 /app/.next/standalone ./
-COPY --from=0 /app/.next/static ./.next/static
-COPY --from=0 /app/public ./public
+# Copy standalone server and static files
+COPY .next/standalone ./
+COPY .next/static ./.next/static
+COPY public ./public
 
 EXPOSE 8080
 
