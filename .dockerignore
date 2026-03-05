@@ -6,7 +6,6 @@ README.md
 .env
 .env.local
 .env*.local
-.next
 .git
 .gitignore
 *.md

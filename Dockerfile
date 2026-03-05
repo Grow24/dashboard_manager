@@ -1,23 +1,28 @@
-FROM node:22-slim
-LABEL "language"="nodejs"
-LABEL "framework"="next.js"
+FROM node:22-slim AS builder
 
 WORKDIR /app
 
-# Install dependencies
 COPY package*.json ./
+
 RUN npm install --legacy-peer-deps
 
-# Copy application source
 COPY . .
 
-# Build the Next.js app with default output (no standalone)
 RUN npm run build
 
-EXPOSE 8080
+
+FROM node:22-slim AS runner
+
+WORKDIR /app
+
 ENV NODE_ENV=production
 ENV PORT=8080
 ENV HOSTNAME=0.0.0.0
 
-# Run the app the same way as locally after a build
-CMD ["npm", "run", "start"]
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
+
+EXPOSE 8080
+
+CMD ["node", "server.js"]
