@@ -21,8 +21,8 @@ RUN npm run build
 # Verify static files were generated (this will fail the build if CSS files are missing)
 RUN test -d .next/static/css && echo "✓ CSS files generated successfully" || (echo "✗ ERROR: CSS files not found!" && exit 1)
 RUN test -d .next/static/chunks && echo "✓ JS chunks generated successfully" || (echo "✗ ERROR: JS chunks not found!" && exit 1)
-RUN echo "--- CSS Files Generated ---" && ls -la .next/static/css/ | head -5
-RUN echo "--- Verifying styles.css is processed ---" && test -f app/styles.css && echo "✓ app/styles.css exists in source" || echo "✗ ERROR: app/styles.css not found!"
+RUN echo "--- CSS files in .next/static/css ---" && ls -la .next/static/css/ | head -10
+RUN test -f app/globals.css && echo "✓ app/globals.css exists in source" || (echo "✗ ERROR: app/globals.css not in build context!" && exit 1)
 RUN echo "Build verification complete. Static files are ready."
 
 # Stage 2: Runtime - minimal image with only production files
