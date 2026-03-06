@@ -34,12 +34,23 @@ ENV PORT=8080
 ENV HOSTNAME=0.0.0.0
 
 # Copy built application from builder stage
+# .next contains all built static files (CSS, JS, etc.) and server files
 COPY --from=builder /app/.next ./.next
+# node_modules needed for next start to run
 COPY --from=builder /app/node_modules ./node_modules
+# public directory for static assets
 COPY --from=builder /app/public ./public
+# package.json needed for npm run start
 COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/package-lock.json* ./package-lock.json*
+# next.config.ts needed for next start configuration
+COPY --from=builder /app/next.config.ts ./next.config.ts
+# Config files (though CSS is already processed in build)
 COPY --from=builder /app/postcss.config.js ./postcss.config.js
 COPY --from=builder /app/tailwind.config.ts ./tailwind.config.ts
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
+# app directory needed for next start to serve pages (even though pages are pre-rendered)
+COPY --from=builder /app/app ./app
 
 EXPOSE 8080
 
