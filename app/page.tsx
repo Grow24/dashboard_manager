@@ -9,7 +9,7 @@ import ReactECharts from 'echarts-for-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FiRefreshCw } from 'react-icons/fi';
 import LeftSliders from './LeftSliders';
-import './globals.css'
+
 
 
 
