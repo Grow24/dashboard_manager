@@ -77,5 +77,4 @@ const config: Config = {
   plugins: [animate],
 };
 
-
 export default config;
