@@ -1,3 +1,8 @@
+<div style={{ background: "lime", color: "black", padding: 12, fontWeight: "bold" }}>
+  ZEABUR TEST 2026-03-07-1
+</div>
+
+
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
