@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# generated tailwind (built by scripts/build-tailwind.js)
+app/tailwind-generated.ts

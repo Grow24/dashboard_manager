@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build --webpack",
+    "tailwind:build": "node scripts/build-tailwind.js",
+    "dev": "npm run tailwind:build && next dev",
+    "build": "npm run tailwind:build && next build --webpack",
     "start": "next start"
   },
   "dependencies": {
@@ -78,6 +79,7 @@
     "uuid": "^11.1.0"
   },
   "devDependencies": {
+    "@tailwindcss/cli": "^4",
     "@eslint/eslintrc": "^3",
     "@types/node": "^20",
     "@types/react": "^19",
