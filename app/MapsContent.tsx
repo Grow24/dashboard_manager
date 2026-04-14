@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { GoogleMap, LoadScript, Marker, InfoWindow } from '@react-google-maps/api';
+import React, { useState, useRef } from 'react';
+import { GoogleMap, Marker, InfoWindow, useJsApiLoader } from '@react-google-maps/api';
 
 const containerStyle = {
   width: '100%',
@@ -28,6 +28,11 @@ export default function MapsContent() {
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
   const clickTimeoutRef = useRef(null);
+  const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  const { isLoaded, loadError } = useJsApiLoader({
+    id: 'google-map-script',
+    googleMapsApiKey: googleMapsApiKey || '',
+  });
 
   const onLoad = (map) => {
     mapRef.current = map;
@@ -131,59 +136,69 @@ export default function MapsContent() {
     setContextMenu({ visible: false, x: 0, y: 0, latLng: null });
   };
 
+  if (loadError) {
+    return <div>Failed to load Google Maps.</div>;
+  }
+
+  if (!googleMapsApiKey) {
+    return <div>Google Maps API key is missing. Set NEXT_PUBLIC_GOOGLE_MAPS_API_KEY.</div>;
+  }
+
+  if (!isLoaded) {
+    return <div>Loading map...</div>;
+  }
+
   return (
     <div style={{ height: '90%', position: 'relative' }} ref={mapContainerRef}>
-      <LoadScript googleMapsApiKey="AIzaSyAFXZaeBQvHKMHTSZYlPyCyyse8TTBtlIw">
-        <div style={{ marginBottom: 10 }}>
-          <label>
-            Filter markers:&nbsp;
-            <select value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-              <option value="all">All</option>
-              <option value="capital">Capital</option>
-              <option value="metro">Metro</option>
-            </select>
-          </label>
-        </div>
+      <div style={{ marginBottom: 10 }}>
+        <label>
+          Filter markers:&nbsp;
+          <select value={filterType} onChange={(e) => setFilterType(e.target.value)}>
+            <option value="all">All</option>
+            <option value="capital">Capital</option>
+            <option value="metro">Metro</option>
+          </select>
+        </label>
+      </div>
 
-        <GoogleMap
-          mapContainerStyle={containerStyle}
-          center={indiaCenter}
-          zoom={zoom}
-          onLoad={onLoad}
-          onZoomChanged={onZoomChanged}
-          onClick={handleMapClick}
-          onDblClick={handleMapDoubleClick}
-          onRightClick={handleMapRightClick}
-          options={{
-            zoomControl: true,
-            streetViewControl: false,
-            mapTypeControl: false,
-            fullscreenControl: false,
-          }}
-        >
-          {filteredMarkers.map(({ id, position, title }) => (
-            <Marker
-              key={id}
-              position={position}
-              title={title}
-              onClick={() => handleMarkerClick({ id, position, title })}
-            />
-          ))}
+      <GoogleMap
+        mapContainerStyle={containerStyle}
+        center={indiaCenter}
+        zoom={zoom}
+        onLoad={onLoad}
+        onZoomChanged={onZoomChanged}
+        onClick={handleMapClick}
+        onDblClick={handleMapDoubleClick}
+        onRightClick={handleMapRightClick}
+        options={{
+          zoomControl: true,
+          streetViewControl: false,
+          mapTypeControl: false,
+          fullscreenControl: false,
+        }}
+      >
+        {filteredMarkers.map(({ id, position, title }) => (
+          <Marker
+            key={id}
+            position={position}
+            title={title}
+            onClick={() => handleMarkerClick({ id, position, title })}
+          />
+        ))}
 
-          {selectedMarker && (
-            <InfoWindow
-              position={selectedMarker.position}
-              onCloseClick={() => setSelectedMarker(null)}
-            >
-              <div>
-                <h4>{selectedMarker.title}</h4>
-                <p>Lat: {selectedMarker.position.lat.toFixed(4)}</p>
-                <p>Lng: {selectedMarker.position.lng.toFixed(4)}</p>
-              </div>
-            </InfoWindow>
-          )}
-        </GoogleMap>
-      </LoadScript>
+        {selectedMarker && (
+          <InfoWindow
+            position={selectedMarker.position}
+            onCloseClick={() => setSelectedMarker(null)}
+          >
+            <div>
+              <h4>{selectedMarker.title}</h4>
+              <p>Lat: {selectedMarker.position.lat.toFixed(4)}</p>
+              <p>Lng: {selectedMarker.position.lng.toFixed(4)}</p>
+            </div>
+          </InfoWindow>
+        )}
+      </GoogleMap>
 
       {/* Custom Context Menu */}
       {contextMenu.visible && (

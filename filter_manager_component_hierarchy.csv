@@ -1,0 +1,53 @@
+ID,Hierarchy,Parent,Name,Alias,Location,Description
+1,1,-,FilterManager Page,FM_Page,app/page.tsx + app/FilterManager.tsx,Top-menu entry FilterManager opens this page component.
+2,2,FilterManager Page,Top Navigation Hook,FM_MenuLink,app/page.tsx,selectedMenu === 'FilterManager' renders <FilterManager />.
+3,2,FilterManager Page,FilterManager (Main Container),FM_Main,app/FilterManager.tsx,Main orchestration component for filter list CRUD and modal workflow.
+4,3,FilterManager (Main Container),Header Action Bar,FM_HeaderActions,app/FilterManager.tsx,Refresh action and Create New Filter trigger.
+5,3,FilterManager (Main Container),Filter List Section,FM_FilterListSection,app/FilterManager.tsx,Displays all filters with selection controls and bulk actions.
+6,4,Filter List Section,Filter List Item Card,FM_FilterCard,app/FilterManager.tsx,Per-filter card with metadata badges and action buttons.
+7,5,Filter List Item Card,Edit Action,FM_ActionEdit,app/FilterManager.tsx,Opens modal in edit mode for selected filter.
+8,5,Filter List Item Card,Duplicate Action,FM_ActionDuplicate,app/FilterManager.tsx,Clones selected filter and saves as a new record.
+9,5,Filter List Item Card,Delete Action,FM_ActionDelete,app/FilterManager.tsx,Deletes selected filter via API flow.
+10,3,FilterManager (Main Container),Summary Panel,FM_SummaryPanel,app/FilterManager.tsx,Shows aggregate counts like Total Active and With API.
+11,3,FilterManager (Main Container),Quick Actions Panel,FM_QuickActions,app/FilterManager.tsx,Select All and Clear Selection operations.
+12,3,FilterManager (Main Container),Create/Edit Modal Shell,FM_FilterModalShell,app/FilterManager.tsx,Overlay modal host for create or edit filter flows.
+13,4,Create/Edit Modal Shell,ThemeProvider Wrapper,FM_ThemeProvider,app/FilterManager.tsx + app/BasicTab.tsx,Wraps modal content with theme context and root dark class support.
+14,4,Create/Edit Modal Shell,BasicTab Editor,FM_BasicTabEditor,app/FilterManager.tsx + app/BasicTab.tsx,Main filter editor form component used for both create and edit.
+15,5,BasicTab Editor,Tab Navigation,FM_BasicTabNav,app/BasicTab.tsx,Switches between editing areas basic styling events validation options and queryBuilder.
+16,6,Tab Navigation,Basic Tab Content,FM_TabBasic,app/BasicTab.tsx,Core filter properties like name type field default and visibility settings.
+17,6,Tab Navigation,Styling Tab Content,FM_TabStyling,app/BasicTab.tsx,CSS class and inline style configuration UI.
+18,6,Tab Navigation,Events Tab Content,FM_TabEvents,app/BasicTab.tsx,Event handler bindings like onClick onChange onFocus onKeyDown.
+19,6,Tab Navigation,Validation Tab Content,FM_TabValidation,app/BasicTab.tsx,Validation constraints such as required min max pattern and related checks.
+20,6,Tab Navigation,Options Tab Content,FM_TabOptions,app/BasicTab.tsx,Static or dynamic options and selection behavior configuration.
+21,6,Tab Navigation,QueryBuilder Tab Content,FM_TabQueryBuilder,app/BasicTab.tsx,Advanced SQL-like query builder setup for dynamic data-driven filters.
+22,7,QueryBuilder Tab Content,Join Configuration Accordion,FM_QBJoinConfig,app/BasicTab.tsx,Join type primary secondary table and join condition setup.
+23,7,QueryBuilder Tab Content,Where Conditions Accordion,FM_QBWhereConditions,app/BasicTab.tsx,Configures filter clauses operators and grouped conditions.
+24,7,QueryBuilder Tab Content,Window Functions Accordion,FM_QBWindowFunctions,app/BasicTab.tsx,Defines ranking aggregate and analytic window expressions.
+25,8,Where Conditions Accordion,NestedQueryBuilder,FM_NestedQueryBuilder,app/BasicTab.tsx,Recursive nested query editor for advanced condition composition.
+26,3,FilterManager (Main Container),UI Helper Component IconButton,FM_HelperIconButton,app/FilterManager.tsx,Reusable icon action button used across list actions.
+27,3,FilterManager (Main Container),UI Helper Component Badge,FM_HelperBadge,app/FilterManager.tsx,Reusable status and metadata badge element.
+28,1,-,DashboardManager Page,DM_Page,app/page.tsx + app/DashboardManager.tsx,Top-menu entry DashboardManager opens this page component.
+29,2,DashboardManager Page,Top Navigation Hook,DM_MenuLink,app/page.tsx,selectedMenu === 'DashboardManager' renders <DashboardManager />.
+30,2,DashboardManager Page,DashboardManager (Main Container),DM_Main,app/DashboardManager.tsx,"Main orchestration component: tabs, CRUD, layout, API integration."
+31,3,DashboardManager (Main Container),Header Actions Bar,DM_HeaderActions,app/DashboardManager.tsx,"Buttons: Create Dashboard, Drag Mode, tab switches, Refresh."
+32,3,DashboardManager (Main Container),Dashboards Tab,DM_Tab_Dashboards,app/DashboardManager.tsx,Shows dashboard cards and selected dashboard visual area.
+33,3,DashboardManager (Main Container),Widgets Tab,DM_Tab_Widgets,app/DashboardManager.tsx,"Tabular widget management (edit/delete/add/refresh)."
+34,3,DashboardManager (Main Container),Data Sources Tab,DM_Tab_DataSources,app/DashboardManager.tsx,Tabular data source management.
+35,3,DashboardManager (Main Container),Create Context Menu Tab,DM_Tab_ContextMenu,app/DashboardManager.tsx,Loads separate context-menu management component.
+36,3,DashboardManager (Main Container),Assign Filters Tab,DM_Tab_AssignFilters,app/DashboardManager.tsx,Loads separate filter-assignment component and assignment grid.
+37,3,Dashboards Tab,DashboardCard,DM_DashboardCard,app/DashboardManager.tsx,"Individual dashboard tile with select/edit/delete/drop handling."
+38,3,Dashboards Tab,Selected Dashboard Panel,DM_SelectedDashboardPanel,app/DashboardManager.tsx,Displays selected dashboard info and widget grid container.
+39,4,Selected Dashboard Panel,GridLayout (Widget Canvas),DM_WidgetGrid,app/DashboardManager.tsx,Responsive drag/resize layout for widgets.
+40,4,GridLayout (Widget Canvas),WidgetComponent,DM_WidgetRenderer,app/DashboardManager.tsx,Per-widget renderer with data + type-based UI rendering.
+41,5,WidgetComponent,KPIView,DM_KPIView,app/DashboardManager.tsx,KPI value/trend visual display.
+42,5,WidgetComponent,Chart Renderer Block,DM_ChartBlock,app/DashboardManager.tsx,Renders chart-like visuals from normalized data.
+43,5,WidgetComponent,Table Renderer Block,DM_TableBlock,app/DashboardManager.tsx,Renders normalized table rows/columns.
+44,5,WidgetComponent,Text Renderer Block,DM_TextBlock,app/DashboardManager.tsx,Renders textual widget content.
+45,5,WidgetComponent,Map Renderer Block,DM_MapBlock,app/DashboardManager.tsx,MAP type logic with dynamic leaflet component loading.
+46,5,WidgetComponent,RecursiveMenu,DM_RecursiveContextMenu,app/DashboardManager.tsx,Nested context-menu rendering tree.
+47,3,DashboardManager (Main Container),DashboardModal,DM_Modal_Dashboard,app/DashboardManager.tsx,Create/Edit dashboard modal.
+48,3,DashboardManager (Main Container),WidgetModal,DM_Modal_Widget,app/DashboardManager.tsx,Create/Edit widget modal + preview + config fields.
+49,3,DashboardManager (Main Container),DataSourceModal,DM_Modal_DataSource,app/DashboardManager.tsx,Create/Edit datasource modal with JSON config fields.
+50,2,DashboardManager Page,ContextMenuTab (Separate Component),DM_Separate_ContextMenuTab,app/ContextMenuTab.tsx,Full CRUD for context menus and widget-context assignments.
+51,2,DashboardManager Page,AssignFiltersTab (Separate Component),DM_Separate_AssignFiltersTab,app/AssignFiltersTab.tsx,Assign filters at dashboard/widget scope.
+52,2,DashboardManager Page,MapWidget (Separate Component dynamic),DM_Separate_MapWidget,components/MapWidget.tsx,Dynamically imported map widget for MAP visual type.

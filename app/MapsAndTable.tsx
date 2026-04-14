@@ -1,5 +1,5 @@
 // import React, { useState } from 'react';
-import { GoogleMap, LoadScript, Marker } from '@react-google-maps/api';
+import { GoogleMap, Marker, useJsApiLoader } from '@react-google-maps/api';
 
 import React, { useState, useRef } from 'react';
 // import { GoogleMap, LoadScript, Marker } from '@react-google-maps/api';
@@ -60,6 +60,11 @@ const CustomTooltip = ({ active, payload }) => {
 export default function MapComponent() {
     const [zoom, setZoom] = useState(5);
     const [activeBar, setActiveBar] = useState(null);
+    const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+    const { isLoaded, loadError } = useJsApiLoader({
+        id: 'google-map-script',
+        googleMapsApiKey: googleMapsApiKey || '',
+    });
 
     // const onZoomChanged = (map) => {
     //     setZoom(map.getZoom());
@@ -85,27 +90,37 @@ export default function MapComponent() {
         }
     };
 
+    if (loadError) {
+        return <div>Failed to load Google Maps.</div>;
+    }
+
+    if (!googleMapsApiKey) {
+        return <div>Google Maps API key is missing. Set NEXT_PUBLIC_GOOGLE_MAPS_API_KEY.</div>;
+    }
+
+    if (!isLoaded) {
+        return <div>Loading map...</div>;
+    }
+
     return (
         <div style={{ width: '100%', maxWidth: 900, margin: '0 auto' }}>
-           <LoadScript googleMapsApiKey="AIzaSyC2YZDmqIxjLu_Giotukm7zb6_qKaJQ6Vk">
-                <GoogleMap
-                    mapContainerStyle={containerStyle}
-                    center={center}
-                    zoom={zoom}
-                    onLoad={onLoad}
-                    onZoomChanged={onZoomChanged}
-                    options={{
-                        zoomControl: true,
-                        streetViewControl: false,
-                        mapTypeControl: false,
-                        fullscreenControl: false,
-                    }}
-                >
-                    {markers.map(({ id, position, title }) => (
-                        <Marker key={id} position={position} title={title} />
-                    ))}
-                </GoogleMap>
-            </LoadScript>
+            <GoogleMap
+                mapContainerStyle={containerStyle}
+                center={center}
+                zoom={zoom}
+                onLoad={onLoad}
+                onZoomChanged={onZoomChanged}
+                options={{
+                    zoomControl: true,
+                    streetViewControl: false,
+                    mapTypeControl: false,
+                    fullscreenControl: false,
+                }}
+            >
+                {markers.map(({ id, position, title }) => (
+                    <Marker key={id} position={position} title={title} />
+                ))}
+            </GoogleMap>
 
             {/* Charts container */}
             <div style={{ display: 'flex', justifyContent: 'space-around', marginTop: 40 }}>

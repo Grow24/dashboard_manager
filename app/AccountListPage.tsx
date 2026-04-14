@@ -30,17 +30,35 @@ interface Filter {
   position?: number;
   cssClass?: string;
   inlineStyle?: string;
+  cssCode?: string;
   onClickHandler?: string;
   onBlurHandler?: string;
   onChangeHandler?: string;
   onFocusHandler?: string;
   onKeyDownHandler?: string;
   onKeyUpHandler?: string;
+  onClickHandlerParams?: string;
+  onClickHandlerResponse?: string;
+  onBlurHandlerParams?: string;
+  onBlurHandlerResponse?: string;
+  onChangeHandlerParams?: string;
+  onChangeHandlerResponse?: string;
+  onFocusHandlerParams?: string;
+  onFocusHandlerResponse?: string;
+  onKeyDownHandlerParams?: string;
+  onKeyDownHandlerResponse?: string;
+  onKeyUpHandlerParams?: string;
+  onKeyUpHandlerResponse?: string;
   query_preview?: string;
   querypreview?: string;
   isRankingFilter?: boolean;
   queryPreview?: string;
   filterApply?: 'Live' | 'Manual';
+  condition_operator?: string;
+  logical_operator?: string;
+  webapitype?: string;
+  staticoption?: string;
+  queryBuilder?: { queryPreview?: string } | string | null;
 }
 
 interface DynamicOption {
@@ -146,8 +164,61 @@ const AccountListPage: React.FC = () => {
   const [loadingData, setLoadingData] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dataError, setDataError] = useState<string | null>(null);
+  const [filterValidationErrors, setFilterValidationErrors] = useState<Record<string, string>>({});
   const [tableData, setTableData] = useState<Record<string, unknown>[]>([]);
   const [queryText, setQueryText] = useState<string>('');
+
+  const normalizeBoolean = (value: unknown, fallback = false): boolean => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value === 1;
+    if (typeof value === 'string') {
+      const v = value.trim().toLowerCase();
+      if (v === '1' || v === 'true' || v === 'yes') return true;
+      if (v === '0' || v === 'false' || v === 'no' || v === '') return false;
+    }
+    return fallback;
+  };
+
+  const parseList = (value: unknown): string[] => {
+    if (Array.isArray(value)) {
+      return value.map((item) => String(item ?? '').trim()).filter(Boolean);
+    }
+    if (typeof value !== 'string') return [];
+    const raw = value.trim();
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.map((item) => String(item ?? '').trim()).filter(Boolean);
+      }
+      if (typeof parsed === 'string') {
+        return parsed.split(',').map((item) => item.trim()).filter(Boolean);
+      }
+    } catch {
+      // not JSON, parse as CSV
+    }
+    return raw.split(',').map((item) => item.trim()).filter(Boolean);
+  };
+
+  const parseQueryBuilderPreview = (value: unknown): string => {
+    if (!value) return '';
+    if (typeof value === 'object' && value !== null) {
+      const preview = (value as { queryPreview?: unknown }).queryPreview;
+      return typeof preview === 'string' ? preview.trim() : '';
+    }
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        if (parsed && typeof parsed === 'object') {
+          const preview = (parsed as { queryPreview?: unknown }).queryPreview;
+          return typeof preview === 'string' ? preview.trim() : '';
+        }
+      } catch {
+        return '';
+      }
+    }
+    return '';
+  };
 
   // Fetch assigned filters for this page (only IDs)
   useEffect(() => {
@@ -155,10 +226,12 @@ const AccountListPage: React.FC = () => {
       try {
         const response = await fetch('https://intelligentsalesman.com/ism1/API/get_assigned_filters_for_page.php');
         const data = await response.json();
-        console.log('data----------');
-        console.log(data);
-        if (data.success) {
-          setAssignedFilterIds(data.filters.map((f: { id: string }) => f.id));
+        if (data?.success && Array.isArray(data.filters)) {
+          setAssignedFilterIds(data.filters.map((f: { id: string | number }) => String(f.id)));
+          return;
+        }
+        if (Array.isArray(data?.assignedFilterIds)) {
+          setAssignedFilterIds(data.assignedFilterIds.map((id: string | number) => String(id)));
         }
       } catch (err) {
         console.error('Error fetching assigned filters:', err);
@@ -170,22 +243,30 @@ const AccountListPage: React.FC = () => {
   // Fetch all filters and filter to only assigned ones
   useEffect(() => {
   if (assignedFilterIds.length === 0) {
-    setFilters([]);           // Clear filters
-    setLoadingFilters(false); // <-- This is the key fix!
+    setFilters([]);
+    setSelectedFilterIds([]);
+    setFilterValues({});
+    setFilterValidationErrors({});
+    setLoadingFilters(false);
     return;
   }
 
   setLoadingFilters(true);
-  fetch('https://intelligentsalesman.com/ism1/API/getFilter.php')
-    .then(res => {
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      return res.json();
+  fetch('https://intelligentsalesman.com/ism1/API/get_filters.php')
+    .then(async res => {
+      if (res.ok) return res.json();
+      // Backward compatibility for deployments still exposing legacy endpoint name.
+      const legacy = await fetch('https://intelligentsalesman.com/ism1/API/getFilter.php');
+      if (!legacy.ok) throw new Error(`HTTP error! status: ${legacy.status}`);
+      return legacy.json();
     })
     .then(data => {
       const filtersArray = Array.isArray(data) ? data : (Array.isArray(data.filters) ? data.filters : []);
       const normalizedFilters = filtersArray.map(normalizeFilter);
       const activeFilters = normalizedFilters.filter(filter =>
-        filter.isActive !== false && filter.visible !== false && assignedFilterIds.includes(filter.id)
+        filter.isActive !== false &&
+        filter.visible !== false &&
+        assignedFilterIds.includes(filter.id)
       );
       setFilters(activeFilters);
       setError(null);
@@ -243,7 +324,7 @@ const AccountListPage: React.FC = () => {
     console.log('selectedFilterIds 22----------');
     console.log(loadingFilters);
     console.log(selectedFilterIds.length);
-    if (!loadingFilters && selectedFilterIds.length == '0') {
+    if (!loadingFilters && selectedFilterIds.length === 0) {
       console.log('In----------');
       fetchAllData();
     }
@@ -252,26 +333,56 @@ const AccountListPage: React.FC = () => {
   // Normalize filter helper
   const normalizeFilter = (filter: Partial<Filter>): Filter => ({
     ...filter,
-    options: Array.isArray(filter.options)
-      ? filter.options
-      : typeof filter.options === 'string' && filter.options
-        ? filter.options.split(',').map((opt: string) => opt.trim()).filter(Boolean)
-        : [],
-    tags: Array.isArray(filter.tags)
-      ? filter.tags
-      : typeof filter.tags === 'string' && filter.tags
-        ? filter.tags.split(',').map((tag: string) => tag.trim()).filter(Boolean)
-        : [],
-        
-    multiSelect: filter.multiSelect === true || filter.multiSelect === 1 || filter.multiSelect === '1',
-    webapiType: filter.webapiType ? filter.webapiType.toLowerCase() as 'static' | 'dynamic' : 'dynamic',
-    staticOptions: filter.staticOptions || '',
+    id: String(filter.id ?? ''),
+    options: parseList(filter.options),
+    tags: parseList(filter.tags),
+    multiSelect: normalizeBoolean(filter.multiSelect, false),
+    required: normalizeBoolean(filter.required, false),
+    visible: normalizeBoolean(filter.visible, true),
+    isActive: normalizeBoolean(filter.isActive, true),
+    allowCustom: normalizeBoolean(filter.allowCustom, false),
+    webapiType: ((filter.webapiType || filter.webapitype || 'dynamic') as string).toLowerCase() as 'static' | 'dynamic',
+    staticOptions: String(filter.staticOptions ?? filter.staticoption ?? ''),
     isRankingFilter: !!((filter.query_preview && String(filter.query_preview).trim() !== '') || (filter.querypreview && String(filter.querypreview).trim() !== '')),
     query_preview: filter.query_preview,
     querypreview: filter.querypreview,
-    queryPreview: filter.queryPreview ?? filter.querypreview ?? filter.query_preview ?? '0',
-  filterApply: filter.filterApply || 'Manual' // default Manual if null
+    queryPreview:
+      filter.queryPreview ??
+      filter.querypreview ??
+      filter.query_preview ??
+      parseQueryBuilderPreview(filter.queryBuilder) ??
+      '0',
+    filterApply: filter.filterApply?.toLowerCase() === 'live' ? 'Live' : 'Manual',
+    condition_operator: filter.condition_operator || '=',
+    logical_operator: filter.logical_operator || 'AND',
+    cssCode: typeof filter.cssCode === 'string' ? filter.cssCode : '',
+    onClickHandlerParams: typeof filter.onClickHandlerParams === 'string' ? filter.onClickHandlerParams : '',
+    onClickHandlerResponse: typeof filter.onClickHandlerResponse === 'string' ? filter.onClickHandlerResponse : '',
+    onBlurHandlerParams: typeof filter.onBlurHandlerParams === 'string' ? filter.onBlurHandlerParams : '',
+    onBlurHandlerResponse: typeof filter.onBlurHandlerResponse === 'string' ? filter.onBlurHandlerResponse : '',
+    onChangeHandlerParams: typeof filter.onChangeHandlerParams === 'string' ? filter.onChangeHandlerParams : '',
+    onChangeHandlerResponse: typeof filter.onChangeHandlerResponse === 'string' ? filter.onChangeHandlerResponse : '',
+    onFocusHandlerParams: typeof filter.onFocusHandlerParams === 'string' ? filter.onFocusHandlerParams : '',
+    onFocusHandlerResponse: typeof filter.onFocusHandlerResponse === 'string' ? filter.onFocusHandlerResponse : '',
+    onKeyDownHandlerParams: typeof filter.onKeyDownHandlerParams === 'string' ? filter.onKeyDownHandlerParams : '',
+    onKeyDownHandlerResponse: typeof filter.onKeyDownHandlerResponse === 'string' ? filter.onKeyDownHandlerResponse : '',
+    onKeyUpHandlerParams: typeof filter.onKeyUpHandlerParams === 'string' ? filter.onKeyUpHandlerParams : '',
+    onKeyUpHandlerResponse: typeof filter.onKeyUpHandlerResponse === 'string' ? filter.onKeyUpHandlerResponse : '',
   });
+
+  useEffect(() => {
+    if (filters.length === 0) return;
+    setFilterValues((prev) => {
+      const next = { ...prev };
+      filters.forEach((f) => {
+        if (next[f.id] !== undefined) return;
+        const def = f.defaultValue;
+        if (def === undefined || def === null || String(def).trim() === '') return;
+        next[f.id] = f.multiSelect ? parseList(def) : String(def);
+      });
+      return next;
+    });
+  }, [filters]);
 
   // Fetch dynamic options for select filters
   const fetchDynamicOptions = async (filterId: string, webapi: string) => {
@@ -310,6 +421,21 @@ const AccountListPage: React.FC = () => {
           value: item.id || item.name || item.value,
           label: item.name || item.label || item.value
         }));
+      } else if (data.filters && Array.isArray(data.filters)) {
+        options = data.filters
+          .map((item: unknown) => {
+            if (typeof item === 'string') return { value: item, label: item };
+            if (item && typeof item === 'object') {
+              const obj = item as Record<string, unknown>;
+              const label = obj.name ?? obj.label ?? obj.value ?? obj.id;
+              if (label != null) {
+                const text = String(label);
+                return { value: text, label: text };
+              }
+            }
+            return null;
+          })
+          .filter((opt: DynamicOption | null): opt is DynamicOption => opt !== null);
       }
       setDynamicOptions(prev => ({ ...prev, [filterId]: options }));
     } catch {
@@ -321,8 +447,74 @@ const AccountListPage: React.FC = () => {
 
   // Helper: whether this filter has an empty query preview (should show its control)
   const hasEmptyQuery = (f: Filter) => {
-    const qp = (f.query_preview ?? f.querypreview ?? '').toString().trim();
+    const qp = (f.query_preview ?? f.querypreview ?? parseQueryBuilderPreview(f.queryBuilder) ?? '').toString().trim();
     return qp === '';
+  };
+
+  const isQueryPreviewEnabled = (f: Filter): boolean => {
+    const val = f.queryPreview;
+    if (typeof val === 'boolean') return val;
+    if (typeof val === 'number') return val === 1;
+    if (typeof val === 'string') {
+      const t = val.trim().toLowerCase();
+      return t === '1' || t === 'true' || t === 'yes';
+    }
+    return false;
+  };
+
+  const getFilterValidationError = (filter: Filter, rawValue: unknown): string | null => {
+    if (rawValue === undefined || rawValue === null || rawValue === '') return null;
+    if (Array.isArray(rawValue) && rawValue.length === 0) return null;
+
+    const value = Array.isArray(rawValue) ? rawValue.join(',') : String(rawValue);
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    if (filter.pattern && filter.pattern.trim()) {
+      try {
+        const regex = new RegExp(filter.pattern);
+        if (!regex.test(trimmed)) {
+          return `${filter.name} format is invalid.`;
+        }
+      } catch {
+        // ignore invalid admin-side regex config to avoid blocking
+      }
+    }
+
+    if (filter.type === 'number') {
+      const num = Number(trimmed);
+      if (Number.isNaN(num)) return `${filter.name} must be a number.`;
+      const minNum = filter.min !== undefined && filter.min !== '' ? Number(filter.min) : NaN;
+      const maxNum = filter.max !== undefined && filter.max !== '' ? Number(filter.max) : NaN;
+      if (!Number.isNaN(minNum) && num < minNum) return `${filter.name} must be at least ${minNum}.`;
+      if (!Number.isNaN(maxNum) && num > maxNum) return `${filter.name} must be at most ${maxNum}.`;
+      return null;
+    }
+
+    if (filter.type === 'date') {
+      const current = new Date(trimmed);
+      if (Number.isNaN(current.getTime())) return `${filter.name} must be a valid date.`;
+      if (filter.min) {
+        const minDate = new Date(String(filter.min));
+        if (!Number.isNaN(minDate.getTime()) && current < minDate) {
+          return `${filter.name} must be on or after ${filter.min}.`;
+        }
+      }
+      if (filter.max) {
+        const maxDate = new Date(String(filter.max));
+        if (!Number.isNaN(maxDate.getTime()) && current > maxDate) {
+          return `${filter.name} must be on or before ${filter.max}.`;
+        }
+      }
+      return null;
+    }
+
+    const length = trimmed.length;
+    const minLen = filter.min !== undefined && filter.min !== '' ? Number(filter.min) : NaN;
+    const maxLen = filter.max !== undefined && filter.max !== '' ? Number(filter.max) : NaN;
+    if (!Number.isNaN(minLen) && length < minLen) return `${filter.name} length must be at least ${minLen}.`;
+    if (!Number.isNaN(maxLen) && length > maxLen) return `${filter.name} length must be at most ${maxLen}.`;
+    return null;
   };
 
   // Build the query from selected filters and current values
@@ -332,20 +524,29 @@ const buildQueryFromFilters = (selectedIdsOverride?: string[], filterValuesOverr
   if (selected.length === 0) return '';
 
   const queryFilter = selected.find(f => {
-    const qp = (f.query_preview ?? f.querypreview ?? '').toString().trim();
+    const qp = (f.query_preview ?? f.querypreview ?? parseQueryBuilderPreview(f.queryBuilder) ?? '').toString().trim();
     return qp !== '';
   });
 
-  // ✅ Always default to full SELECT query if no query preview found
-  let baseQuery =
-    (queryFilter?.query_preview ||
-     queryFilter?.querypreview ||
-     '').toString().trim() ||
-    `SELECT id, name, salesAmount,date, salesQuantity, status, age, salary, country, state, createdAt FROM sales_data ORDER BY id DESC`;
+  // Stored query_preview is a full SQL statement: run it as-is (no UI WHERE merging).
+  if (queryFilter) {
+    let onlyPreview =
+      (queryFilter.query_preview ??
+        queryFilter.querypreview ??
+        parseQueryBuilderPreview(queryFilter.queryBuilder) ??
+        '')
+        .toString()
+        .trim();
+    if (onlyPreview.endsWith(';')) onlyPreview = onlyPreview.slice(0, -1);
+    if (onlyPreview) return onlyPreview;
+  }
+
+  // No preview: default list query + optional conditions from field values
+  let baseQuery = `SELECT id, name, salesAmount,date, salesQuantity, status, age, salary, country, state, createdAt FROM sales_data ORDER BY id DESC`;
 
   if (baseQuery.endsWith(';')) baseQuery = baseQuery.slice(0, -1);
 
-  const conditions: string[] = [];
+  const conditionSegments: { logical: string; expression: string }[] = [];
   const liveFilterValues = filterValuesOverride ?? filterValues;
 
   selected.forEach(filter => {
@@ -356,18 +557,40 @@ const buildQueryFromFilters = (selectedIdsOverride?: string[], filterValuesOverr
 
     if (Array.isArray(value)) {
       const quoted = value.map(v => `'${String(v).replace(/'/g, "''")}'`).join(', ');
-      conditions.push(`${field} IN (${quoted})`);
-    } else if (filter.type === 'text') {
-      conditions.push(`${field} LIKE '%${String(value).replace(/'/g, "''")}%'`);
+      conditionSegments.push({
+        logical: String(filter.logical_operator || 'AND').toUpperCase(),
+        expression: `${field} IN (${quoted})`,
+      });
     } else {
-      conditions.push(`${field} = '${String(value).replace(/'/g, "''")}'`);
+      const operator = String(filter.condition_operator || (filter.type === 'text' ? 'LIKE' : '=')).toUpperCase();
+      const escaped = String(value).replace(/'/g, "''");
+      if (filter.type === 'text' && operator === 'LIKE') {
+        conditionSegments.push({
+          logical: String(filter.logical_operator || 'AND').toUpperCase(),
+          expression: `${field} LIKE '%${escaped}%'`,
+        });
+      } else if (['=', '!=', '<>', '>', '<', '>=', '<='].includes(operator)) {
+        conditionSegments.push({
+          logical: String(filter.logical_operator || 'AND').toUpperCase(),
+          expression: `${field} ${operator} '${escaped}'`,
+        });
+      } else {
+        conditionSegments.push({
+          logical: String(filter.logical_operator || 'AND').toUpperCase(),
+          expression: `${field} = '${escaped}'`,
+        });
+      }
     }
   });
 
   let finalQuery = baseQuery;
 
-  if (conditions.length > 0) {
-    const cond = conditions.join(' AND ');
+  if (conditionSegments.length > 0) {
+    const cond = conditionSegments.reduce((acc, segment, idx) => {
+      if (idx === 0) return segment.expression;
+      const safeLogical = segment.logical === 'OR' ? 'OR' : 'AND';
+      return `${acc} ${safeLogical} ${segment.expression}`;
+    }, '');
 
     // ✅ Insert WHERE before ORDER BY if not present
     if (finalQuery.toLowerCase().includes(' where ')) {
@@ -384,6 +607,15 @@ console.log('finalQuery ---------------' + finalQuery);
   return finalQuery;
 };
 
+  const getFilterQueryPreviewSql = (f: Filter | undefined): string => {
+    if (!f) return '';
+    let sql = (f.query_preview ?? f.querypreview ?? parseQueryBuilderPreview(f.queryBuilder) ?? '')
+      .toString()
+      .trim();
+    if (sql.endsWith(';')) sql = sql.slice(0, -1);
+    return sql;
+  };
+
   const toggleFilterSelection = (filterId: string, checked: boolean) => {
     setSelectedFilterIds(prev => {
       let newSelection;
@@ -397,15 +629,34 @@ console.log('finalQuery ---------------' + finalQuery);
           delete copy[filterId];
           return copy;
         });
+        setFilterValidationErrors((prevErrors) => {
+          const copy = { ...prevErrors };
+          delete copy[filterId];
+          return copy;
+        });
       }
 
-      // Update query text when selection changes (use intended selection)
-      setQueryText(buildQueryFromFilters(newSelection));
+      const built = buildQueryFromFilters(newSelection);
+      const query = typeof built === 'string' ? built : '';
+      setQueryText(query);
 
       // If no filters left selected, reload all data and clear query
       if (newSelection.length === 0) {
         setQueryText('');
         fetchAllData();
+      } else if (checked) {
+        const toggled = filters.find((x) => x.id === filterId);
+        const previewSql = getFilterQueryPreviewSql(toggled);
+        if (previewSql && previewSql.toUpperCase().startsWith('SELECT')) {
+          setQueryText(previewSql);
+          queueMicrotask(() => {
+            applyFilters(previewSql, undefined, { bypassValidation: true });
+          });
+        }
+      } else {
+        queueMicrotask(() => {
+          applyFilters(undefined, undefined, { bypassValidation: false });
+        });
       }
 
       return newSelection;
@@ -413,30 +664,155 @@ console.log('finalQuery ---------------' + finalQuery);
   };
 
 const handleFilterChange = (id: string, value: unknown) => {
+  const changedFilter = filters.find(f => f.id === id);
+  if (!changedFilter) return;
+  const validationError = getFilterValidationError(changedFilter, value);
+  setFilterValidationErrors((prev) => {
+    const next = { ...prev };
+    if (validationError) next[id] = validationError;
+    else delete next[id];
+    return next;
+  });
+
   setFilterValues(prev => {
     const newValues = { ...prev, [id]: value };
     const nextQueryRaw = buildQueryFromFilters(undefined, newValues);
     const nextQuery = typeof nextQueryRaw === 'string' ? nextQueryRaw : '';
     setQueryText(nextQuery);
 
-    const changedFilter = filters.find(f => f.id === id);
-    if (changedFilter?.filterApply?.toLowerCase() === 'live') {
-      applyFilters(nextQuery); // passing a guaranteed string
+    if (!validationError && changedFilter?.filterApply?.toLowerCase() === 'live') {
+      applyFilters(nextQuery, newValues); // passing a guaranteed string
     }
 
     return newValues;
   });
 };
 
+const getRequiredFilterError = (selectedIdsOverride?: string[], valuesOverride?: Record<string, unknown>): string | null => {
+  const selected = filters.filter(f => (selectedIdsOverride ?? selectedFilterIds).includes(f.id));
+  const values = valuesOverride ?? filterValues;
+  const missing = selected.find((f) => {
+    if (!f.required) return false;
+    const v = values[f.id];
+    if (Array.isArray(v)) return v.length === 0;
+    return v === undefined || v === null || String(v).trim() === '';
+  });
+  return missing ? `${missing.name} is required.` : null;
+};
+
+const getSelectedValidationError = (selectedIdsOverride?: string[], valuesOverride?: Record<string, unknown>): string | null => {
+  const selected = filters.filter(f => (selectedIdsOverride ?? selectedFilterIds).includes(f.id));
+  const values = valuesOverride ?? filterValues;
+  for (const filter of selected) {
+    const err = getFilterValidationError(filter, values[filter.id]);
+    if (err) return err;
+  }
+  return null;
+};
+
+const parseHandlerParams = (raw: string | undefined): unknown => {
+  if (!raw || !raw.trim()) return undefined;
+  const text = raw.trim();
+  try {
+    return JSON.parse(text);
+  } catch {
+    // fallback to CSV / plain text
+  }
+  if (text.includes(',')) {
+    return text.split(',').map((v) => v.trim()).filter(Boolean);
+  }
+  return text;
+};
+
+const executeFilterEvent = (
+  filter: Filter,
+  eventName: 'click' | 'blur' | 'change' | 'focus' | 'keydown' | 'keyup',
+  event: unknown,
+  value?: unknown
+) => {
+  const handlerNameMap = {
+    click: filter.onClickHandler,
+    blur: filter.onBlurHandler,
+    change: filter.onChangeHandler,
+    focus: filter.onFocusHandler,
+    keydown: filter.onKeyDownHandler,
+    keyup: filter.onKeyUpHandler,
+  };
+  const paramsMap = {
+    click: filter.onClickHandlerParams,
+    blur: filter.onBlurHandlerParams,
+    change: filter.onChangeHandlerParams,
+    focus: filter.onFocusHandlerParams,
+    keydown: filter.onKeyDownHandlerParams,
+    keyup: filter.onKeyUpHandlerParams,
+  };
+  const responseMap = {
+    click: filter.onClickHandlerResponse,
+    blur: filter.onBlurHandlerResponse,
+    change: filter.onChangeHandlerResponse,
+    focus: filter.onFocusHandlerResponse,
+    keydown: filter.onKeyDownHandlerResponse,
+    keyup: filter.onKeyUpHandlerResponse,
+  };
+
+  const handlerName = handlerNameMap[eventName]?.trim();
+  if (!handlerName) return;
+
+  const params = parseHandlerParams(paramsMap[eventName]);
+  const responseTarget = responseMap[eventName]?.trim();
+  const win = window as unknown as Record<string, unknown>;
+
+  try {
+    let result: unknown;
+    const candidate = win[handlerName];
+    if (typeof candidate === 'function') {
+      result = (candidate as (...args: unknown[]) => unknown)(event, filter, value, params);
+    } else {
+      // Allow inline JS snippet as advanced fallback
+      const fn = new Function('event', 'filter', 'value', 'params', handlerName) as (
+        eventArg: unknown,
+        filterArg: Filter,
+        valueArg: unknown,
+        paramsArg: unknown
+      ) => unknown;
+      result = fn(event, filter, value, params);
+    }
+
+    if (responseTarget) {
+      win[responseTarget] = result;
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : `Failed executing ${eventName} handler`;
+    setDataError(message);
+  }
+};
+
   const clearAll = () => {
     setSelectedFilterIds([]);
     setFilterValues({});
+    setFilterValidationErrors({});
     setQueryText('');
     setDataError(null);
     fetchAllData();
   };
 
-  const applyFilters = async (queryOverride?: string) => {
+  const applyFilters = async (
+    queryOverride?: string,
+    valuesOverride?: Record<string, unknown>,
+    options?: { bypassValidation?: boolean }
+  ) => {
+  if (!options?.bypassValidation) {
+    const requiredError = getRequiredFilterError(undefined, valuesOverride);
+    if (requiredError) {
+      setDataError(requiredError);
+      return;
+    }
+    const validationError = getSelectedValidationError(undefined, valuesOverride);
+    if (validationError) {
+      setDataError(validationError);
+      return;
+    }
+  }
   let queryToRun = (queryOverride || queryText || '').trim();
 
   if (!queryToRun.toUpperCase().startsWith('SELECT')) {
@@ -471,19 +847,18 @@ const handleFilterChange = (id: string, value: unknown) => {
   }
 };
 
-  // *** FIXED getFilterOptions to properly handle static and dynamic webapiType ***
   const getFilterOptions = (filter: Filter): DynamicOption[] => {
-  const webapiType = filter.webapitype ? filter.webapitype.toLowerCase() : '';
+  const webapiType = (filter.webapiType || filter.webapitype || '').toLowerCase();
 
   if (webapiType === 'static') {
-    if (filter.staticoption && filter.staticoption.trim() !== '') {
-      return filter.staticoption
+    const staticRaw = (filter.staticOptions || filter.staticoption || '').trim();
+    if (staticRaw !== '') {
+      return staticRaw
         .split(',')
         .map(opt => opt.trim())
         .filter(Boolean)
         .map(opt => ({ value: opt, label: opt }));
     }
-    // fallback to options array if staticoption missing or empty
     if (Array.isArray(filter.options)) {
       return filter.options.map(opt => ({ value: opt, label: opt }));
     }
@@ -510,7 +885,7 @@ const handleFilterChange = (id: string, value: unknown) => {
     const options = getFilterOptions(filter);
     const isLoading = loadingOptions[filter.id];
 
-    const parseInlineStyle = (styleString: string): React.CSSProperties => {
+    const parseStyleDeclarations = (styleString: string): React.CSSProperties => {
       if (!styleString) return {};
       const styles: React.CSSProperties = {};
       styleString.split(';').forEach(style => {
@@ -523,41 +898,28 @@ const handleFilterChange = (id: string, value: unknown) => {
       return styles;
     };
 
+    const mergedStyle = {
+      ...parseStyleDeclarations(filter.inlineStyle || ''),
+      ...parseStyleDeclarations(filter.cssCode || ''),
+    };
+
     const createEventHandlers = (filter: Filter) => {
-      type EventHandler = (e: React.SyntheticEvent, filter: Filter) => void;
-      const handlers: Record<string, EventHandler> = {};
-
-      const windowWithHandlers = window as Window & Record<string, EventHandler>;
-      if (filter.onClickHandler && windowWithHandlers[filter.onClickHandler]) {
-        handlers.onClick = (e: React.MouseEvent) => windowWithHandlers[filter.onClickHandler!](e, filter);
-      }
-      if (filter.onBlurHandler && windowWithHandlers[filter.onBlurHandler]) {
-        handlers.onBlur = (e: React.FocusEvent) => windowWithHandlers[filter.onBlurHandler!](e, filter);
-      }
-      if (filter.onChangeHandler && windowWithHandlers[filter.onChangeHandler]) {
-        handlers.onChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      return {
+        onClick: (e: React.MouseEvent) => executeFilterEvent(filter, 'click', e, filterValues[filter.id]),
+        onBlur: (e: React.FocusEvent) => executeFilterEvent(filter, 'blur', e, filterValues[filter.id]),
+        onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
           handleFilterChange(filter.id, e.target.value);
-          windowWithHandlers[filter.onChangeHandler!](e, filter);
-        };
-      } else {
-        handlers.onChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => handleFilterChange(filter.id, e.target.value);
-      }
-      if (filter.onFocusHandler && windowWithHandlers[filter.onFocusHandler]) {
-        handlers.onFocus = (e: React.FocusEvent) => windowWithHandlers[filter.onFocusHandler!](e, filter);
-      }
-      if (filter.onKeyDownHandler && windowWithHandlers[filter.onKeyDownHandler]) {
-        handlers.onKeyDown = (e: React.KeyboardEvent) => windowWithHandlers[filter.onKeyDownHandler!](e, filter);
-      }
-      if (filter.onKeyUpHandler && windowWithHandlers[filter.onKeyUpHandler]) {
-        handlers.onKeyUp = (e: React.KeyboardEvent) => windowWithHandlers[filter.onKeyUpHandler!](e, filter);
-      }
-
-      return handlers;
+          executeFilterEvent(filter, 'change', e, e.target.value);
+        },
+        onFocus: (e: React.FocusEvent) => executeFilterEvent(filter, 'focus', e, filterValues[filter.id]),
+        onKeyDown: (e: React.KeyboardEvent) => executeFilterEvent(filter, 'keydown', e, filterValues[filter.id]),
+        onKeyUp: (e: React.KeyboardEvent) => executeFilterEvent(filter, 'keyup', e, filterValues[filter.id]),
+      };
     };
 
     const commonProps = {
       className: `w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 transition ${filter.cssClass || ''}`,
-      style: parseInlineStyle(filter.inlineStyle || ''),
+      style: mergedStyle,
       disabled: isLoading,
       ...createEventHandlers(filter)
     };
@@ -569,6 +931,8 @@ const handleFilterChange = (id: string, value: unknown) => {
             type="text"
             placeholder={filter.placeholder || `Filter by ${filter.name}`}
             value={value || ''}
+            required={!!filter.required}
+            pattern={filter.pattern || undefined}
             {...commonProps}
           />
         );
@@ -580,6 +944,7 @@ const handleFilterChange = (id: string, value: unknown) => {
             value={value || ''}
             min={filter.min || undefined}
             max={filter.max || undefined}
+            required={!!filter.required}
             {...commonProps}
           />
         );
@@ -588,22 +953,20 @@ const handleFilterChange = (id: string, value: unknown) => {
           <input
             type="date"
             value={value || ''}
+            required={!!filter.required}
             {...commonProps}
           />
         );
       case 'select':
         if (filter.multiSelect) {
           return (
-            <div style={parseInlineStyle(filter.inlineStyle || '')} className={filter.cssClass}>
+            <div style={mergedStyle} className={filter.cssClass}>
               <MultiSelectCombobox
                 options={options}
                 value={Array.isArray(value) ? value : value ? [value] : []}
                 onChange={selected => {
                   handleFilterChange(filter.id, selected);
-                  const windowWithHandlers = window as Window & Record<string, (e: { target: { value: unknown } }, filter: Filter) => void>;
-                  if (filter.onChangeHandler && windowWithHandlers[filter.onChangeHandler]) {
-                    windowWithHandlers[filter.onChangeHandler!]({ target: { value: selected } }, filter);
-                  }
+                  executeFilterEvent(filter, 'change', { target: { value: selected } }, selected);
                 }}
                 placeholder={filter.placeholder || `Select ${filter.name}`}
                 loading={isLoading}
@@ -618,7 +981,7 @@ const handleFilterChange = (id: string, value: unknown) => {
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
               </div>
             )}
-            <select value={value || ''} {...commonProps}>
+            <select value={value || ''} required={!!filter.required} {...commonProps}>
               <option value="">All {filter.name}</option>
               {options.map(opt => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -672,6 +1035,7 @@ const handleFilterChange = (id: string, value: unknown) => {
   return (
     <div className="p-6 mx-auto">
       {/* Filter Section */}
+      {filters.length > 0 && (
       <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6 mb-8">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold text-gray-900">Available Filters</h2>
@@ -729,8 +1093,8 @@ const handleFilterChange = (id: string, value: unknown) => {
           ))}
         </div>
 
-        {/* ✅ Only show when any selected filter has queryPreview = '1' */}
-{selectedFilters.some(f => f.queryPreview === '1') && (
+        {/* Show query editor when selected filter enables query preview */}
+{selectedFilters.some(isQueryPreviewEnabled) && (
   <div className="mb-6">
     <label className="block text-sm font-medium text-gray-700 mb-2">
       Generated Query (Editable)
@@ -756,6 +1120,9 @@ const handleFilterChange = (id: string, value: unknown) => {
                   {f.required && <span className="text-red-500 ml-1">*</span>}
                 </label>
                 {renderFilterControl(f, filterValues[f.id])}
+                {filterValidationErrors[f.id] && (
+                  <p className="text-xs text-red-600 mt-1">{filterValidationErrors[f.id]}</p>
+                )}
                 {f.description && (
                   <p className="text-xs text-gray-500 mt-1">{f.description}</p>
                 )}
@@ -764,6 +1131,7 @@ const handleFilterChange = (id: string, value: unknown) => {
           </div>
         )}
       </div>
+      )}
 
       {/* Table Section */}
       <div className="mb-4">

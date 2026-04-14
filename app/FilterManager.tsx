@@ -9,35 +9,119 @@ import {
   Copy,
   Trash2
 } from 'lucide-react';
+import type { FilterRecord } from './filter-manager/types';
 
-interface Filter {
-  id: string;
-  name: string;
-  type: 'text' | 'number' | 'date' | 'select';
-  field: string;
-  defaultValue: string;
-  position: number;
-  description?: string;
-  placeholder?: string;
-  isActive: boolean;
-  required: boolean;
-  visible: boolean;
-  multiSelect: boolean;
-  allowCustom: boolean;
-  tags?: string[];
-  options?: any[];
-  min?: string;
-  max?: string;
-  pattern?: string;
-  advancedConfig?: any;
-  config: any;
-  webapi?: string;
-  queryBuilder?: any;
-  createdAt: Date;
-  updatedAt: Date;
-}
+type Filter = FilterRecord & { id: string; createdAt: Date; updatedAt: Date };
 
 const API_BASE_URL = 'https://intelligentsalesman.com/ism1/API';
+
+/**
+ * MySQL / PDO often returns 0/1 as numbers or strings. `!!"0"` is wrongly true in JS — use this for flags.
+ */
+function normalizeBool(v: unknown, defaultValue = false): boolean {
+  if (v === true || v === 1) return true;
+  if (v === false || v === 0) return false;
+  if (typeof v === 'string') {
+    const t = v.trim().toLowerCase();
+    if (t === '1' || t === 'true' || t === 'yes' || t === 'on') return true;
+    if (t === '0' || t === 'false' || t === 'no' || t === '') return false;
+  }
+  if (v == null) return defaultValue;
+  return Boolean(v);
+}
+
+/** Map API filter row to boolean — backend may use query_preview / querypreview / string "1"/"0". */
+function normalizeQueryPreviewFlag(f: Record<string, unknown>): boolean {
+  const candidates = [f.queryPreview, f.query_preview, f.querypreview];
+  for (const v of candidates) {
+    if (v === true || v === 1) return true;
+    if (v === false || v === 0 || v === null || v === undefined) continue;
+    if (typeof v === 'string') {
+      const t = v.trim();
+      if (t === '1' || /^true$/i.test(t)) return true;
+      if (t === '0' || t === '' || /^false$/i.test(t)) continue;
+      // Long text (e.g. SQL in another deployment) is not the enable flag
+      continue;
+    }
+  }
+  return false;
+}
+
+/**
+ * Tags / options from DB: JSON array, double-encoded JSON string, or legacy comma-separated text.
+ */
+function parseJsonArrayField(raw: unknown): string[] {
+  if (raw == null) return [];
+  if (Array.isArray(raw)) {
+    return raw.map(item => {
+      if (typeof item === 'string' || typeof item === 'number') return String(item);
+      if (item && typeof item === 'object' && item !== null) {
+        const o = item as Record<string, unknown>;
+        if ('label' in o && o.label != null) return String(o.label);
+        if ('value' in o && o.value != null) return String(o.value);
+      }
+      return String(item);
+    });
+  }
+  if (typeof raw === 'string' && raw.trim()) {
+    let s = raw.trim();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const p = JSON.parse(s);
+        if (Array.isArray(p)) {
+          return p.map(item => {
+            if (typeof item === 'string' || typeof item === 'number') return String(item);
+            if (item && typeof item === 'object' && item !== null) {
+              const o = item as Record<string, unknown>;
+              if ('label' in o && o.label != null) return String(o.label);
+              if ('value' in o && o.value != null) return String(o.value);
+            }
+            return String(item);
+          });
+        }
+        if (typeof p === 'string') {
+          s = p;
+          continue;
+        }
+        break;
+      } catch {
+        break;
+      }
+    }
+    return s.split(',').map(x => x.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function parseConfigField(raw: unknown): Record<string, unknown> {
+  if (raw == null) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>;
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const p = JSON.parse(raw);
+      return typeof p === 'object' && p !== null && !Array.isArray(p) ? (p as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+/** Validation tab advanced JSON — keep invalid JSON as string for the textarea */
+function normalizeAdvancedConfigField(raw: unknown): string | Record<string, unknown> {
+  if (raw == null || raw === '') return '';
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>;
+  if (typeof raw === 'string') {
+    try {
+      const p = JSON.parse(raw);
+      if (typeof p === 'object' && p !== null && !Array.isArray(p)) return p as Record<string, unknown>;
+    } catch {
+      return raw;
+    }
+    return raw;
+  }
+  return '';
+}
 
 /* ------------------------------
    Small UI helpers (shadcn-like)
@@ -95,6 +179,8 @@ const FilterManager: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [editingFilter, setEditingFilter] = useState<Filter | null>(null);
   const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
+  /** Bumps when the filter modal opens so BasicTab remounts with clean local/QB state. */
+  const [editorSession, setEditorSession] = useState(0);
 
   // Modal visibility for the Create Filter popup
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -115,17 +201,18 @@ const FilterManager: React.FC = () => {
     tags: [],
     options: [],
     config: {},
-    webapi: ''
+    webapi: '',
+    queryPreview: false,
+    filterApply: 'Live' as const
   });
 // inside FilterDisplay component (place above the return / JSX)
 const handleSaveFromChild = async (filterData: Partial<Filter>, isEditing = false) => {
   try {
-    // saveFilter should be your existing function that sends payload to API
-    const ok = await saveFilter(filterData, isEditing); // saveFilter must exist/return boolean
+    const ok = await saveFilter(filterData, isEditing);
     if (ok) {
-      closeModal(); // closeModal must be defined in the same component
+      closeModal();
     }
-    return ok; // BasicTab expects boolean / Promise<boolean>
+    return ok;
   } catch (err) {
     console.error('save from child failed', err);
     return false;
@@ -145,39 +232,45 @@ const handleSaveFromChild = async (filterData: Partial<Filter>, isEditing = fals
   name: f.name,
   type: f.type,
   field: f.field,
-  defaultValue: f.defaultValue || '',
-  position: parseInt(f.position) || 0,
+  defaultValue: f.defaultValue ?? '',
+  position: parseInt(f.position, 10) || 0,
   description: f.description,
   placeholder: f.placeholder,
-  isActive: !!f.isActive,
-  required: !!f.required,
-  visible: !!f.visible,
-  multiSelect: !!f.multiSelect,
-  allowCustom: !!f.allowCustom,
-  queryPreview: !!f.queryPreview,
+  isActive: normalizeBool(f.isActive, true),
+  required: normalizeBool(f.required, false),
+  visible: normalizeBool(f.visible, true),
+  multiSelect: normalizeBool(f.multiSelect, false),
+  allowCustom: normalizeBool(f.allowCustom, false),
+  queryPreview: normalizeQueryPreviewFlag(f),
   filterApply: f.filterApply || 'Live',
-  tags: f.tags ? (typeof f.tags === 'string' ? JSON.parse(f.tags) : f.tags) : [],
-  options: f.options ? (typeof f.options === 'string' ? JSON.parse(f.options) : f.options) : [],
-  min: f.min,
-  max: f.max,
-  pattern: f.pattern,
-  advancedConfig: f.advancedConfig ? (typeof f.advancedConfig === 'string' ? JSON.parse(f.advancedConfig) : f.advancedConfig) : {},
-  config: f.config ? (typeof f.config === 'string' ? JSON.parse(f.config) : f.config) : {},
-  
-  // ✅ Parse queryBuilder JSON
-  
-  queryBuilder: f.queryBuilder
-    ? (typeof f.queryBuilder === "string"
-        ? JSON.parse(f.queryBuilder)
-        : f.queryBuilder)
-    : null,
-    
-  webapi: f.webapi,
-  webapiType: f.webapiType || f.webapitype, // ✅ Handle both cases
-  staticOptions: f.staticOptions || f.staticoption || '', // ✅ Handle both cases
-  cssClass: f.cssClass,
-  cssCode: f.cssCode,
-  inlineStyle: f.inlineStyle,
+  tags: parseJsonArrayField(f.tags),
+  options: parseJsonArrayField(f.options),
+  min: f.min ?? '',
+  max: f.max ?? '',
+  pattern: f.pattern ?? '',
+  advancedConfig: normalizeAdvancedConfigField(f.advancedConfig),
+  config: parseConfigField(f.config),
+
+  queryBuilder: (() => {
+    const qb = f.queryBuilder;
+    if (qb == null) return null;
+    if (typeof qb === 'object') return qb;
+    if (typeof qb === 'string' && qb.trim()) {
+      try {
+        return JSON.parse(qb);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  })(),
+
+  webapi: f.webapi ?? '',
+  webapiType: f.webapiType || f.webapitype || '',
+  staticOptions: f.staticOptions ?? f.staticoption ?? '',
+  cssClass: f.cssClass ?? '',
+  cssCode: f.cssCode ?? f.css_code ?? '',
+  inlineStyle: f.inlineStyle ?? '',
   
   // ✅ Event handlers
   onClickHandler: f.onClickHandler,
@@ -205,7 +298,7 @@ const handleSaveFromChild = async (filterData: Partial<Filter>, isEditing = fals
   updatedAt: new Date(f.updatedAt)
 }));
 
-        normalizedFilters.sort((a, b) => a.position - b.position);
+        normalizedFilters.sort((a: Filter, b: Filter) => (a.position ?? 0) - (b.position ?? 0));
         setFilters(normalizedFilters);
       } else {
         setError(data.error || 'Failed to fetch filters');
@@ -226,26 +319,26 @@ const handleSaveFromChild = async (filterData: Partial<Filter>, isEditing = fals
     // Prepare payload with proper structure
     const payload = {
       ...filterData,
-      // Ensure queryBuilder is stringified if it's an object
-      queryBuilder: typeof filterData.queryBuilder === 'string' 
-        ? filterData.queryBuilder 
-        : JSON.stringify(filterData.queryBuilder || {}),
-      // Ensure other JSON fields are stringified
-      tags: typeof filterData.tags === 'string' 
-        ? filterData.tags 
-        : JSON.stringify(filterData.tags || []),
-      options: typeof filterData.options === 'string' 
-        ? filterData.options 
-        : JSON.stringify(filterData.options || []),
-      config: typeof filterData.config === 'string' 
-        ? filterData.config 
-        : JSON.stringify(filterData.config || {}),
-      advancedConfig: typeof filterData.advancedConfig === 'string'
-        ? filterData.advancedConfig
-        : filterData.advancedConfig
-          ? JSON.stringify(filterData.advancedConfig)
-          : '',
-      // Add id only if editing
+      // Send domain objects as-is; API normalizes JSON/strings for DB storage.
+      tags: Array.isArray(filterData.tags) ? filterData.tags : [],
+      options: Array.isArray(filterData.options) ? filterData.options : [],
+      config:
+        filterData.config && typeof filterData.config === 'object'
+          ? filterData.config
+          : {},
+      advancedConfig: filterData.advancedConfig ?? '',
+      queryBuilder:
+        typeof filterData.queryBuilder === 'string'
+          ? (() => {
+              try {
+                return JSON.parse(filterData.queryBuilder);
+              } catch {
+                return null;
+              }
+            })()
+          : filterData.queryBuilder && typeof filterData.queryBuilder === 'object'
+            ? filterData.queryBuilder
+            : null,
       ...(isEditing && filterData.id ? { id: filterData.id } : {})
     };
     
@@ -265,14 +358,14 @@ const handleSaveFromChild = async (filterData: Partial<Filter>, isEditing = fals
     if (data.success) {
       await fetchFilters();
       return true;
-    } else {
-      // setError(data.message || 'Failed to save filter');
-      // return false;
     }
+    console.warn('Save filter rejected:', data.message || data.error || data);
+    window.alert(String(data.message || data.error || 'Failed to save filter'));
+    return false;
   } catch (err) {
-    // setError('Network error: Unable to save filter');
-    // console.error('Error saving filter:', err);
-    // return false;
+    console.error('Error saving filter:', err);
+    window.alert('Network error: Unable to save filter');
+    return false;
   }
 };
 
@@ -360,12 +453,15 @@ const handleSaveFromChild = async (filterData: Partial<Filter>, isEditing = fals
       tags: [],
       options: [],
       config: {},
-      webapi: ''
+      webapi: '',
+      queryPreview: false,
+      filterApply: 'Live'
     });
   };
 
   // Handler to open the CREATE popup from the top ADD button
   const openCreateModal = () => {
+    setEditorSession(s => s + 1);
     resetNewFilter();
     setEditingFilter(null);
     setIsModalOpen(true);
@@ -500,7 +596,7 @@ const handleSaveFromChild = async (filterData: Partial<Filter>, isEditing = fals
                       <IconButton
                         title="Edit filter"
                         onClick={() => {
-                          // open modal in edit mode
+                          setEditorSession(s => s + 1);
                           setEditingFilter(filter);
                           setIsModalOpen(true);
                         }}
@@ -535,7 +631,7 @@ const handleSaveFromChild = async (filterData: Partial<Filter>, isEditing = fals
                   <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
                     <div className="flex items-center gap-3">
                       <span><strong>Field:</strong> {filter.field || '-'}</span>
-                      {filter.defaultValue && <span><strong>Default:</strong> {filter.defaultValue}</span>}
+                      {filter.defaultValue && <span><strong>Default:</strong> {String(filter.defaultValue)}</span>}
                     </div>
 
                     <div className="flex items-center gap-3">
@@ -594,50 +690,54 @@ const handleSaveFromChild = async (filterData: Partial<Filter>, isEditing = fals
 
       {/* Modal overlay for Create / Edit */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6">
           {/* backdrop */}
           <div
             className="absolute inset-0 bg-black/40"
             onClick={closeModal}
             aria-hidden
           />
-          <div className="relative z-10 max-w-3xl w-full mx-4">
-            <div className="bg-white rounded-xl shadow-md p-6 mb-6 w-full">
-              <div className="flex items-center justify-between mb-4">
+          {/*
+            Explicit height is required: with only max-height + items-center, the panel often sizes to
+            content and inner flex-1 never gets a limit — content clips with no scroll. h-[min(...)]
+            gives a definite column height so the body region scrolls.
+          */}
+          <div
+            className="relative z-10 mx-auto flex w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white shadow-xl"
+            style={{ height: 'min(86vh, 820px, calc(100vh - 1.5rem))' }}
+          >
+              <div className="flex flex-shrink-0 items-center justify-between border-b border-slate-100 px-5 py-4">
                 <h3 className="text-lg font-semibold">{editingFilter ? 'Edit Filter' : 'Create New Filter'}</h3>
                 <div className="flex gap-2">
                   <button
                     type="button"
                     title="Close"
                     onClick={closeModal}
-                    className="inline-flex items-center justify-center rounded-md bg-transparent hover:bg-slate-50 px-2 h-8"
+                    className="inline-flex h-8 items-center justify-center rounded-md bg-transparent px-2 hover:bg-slate-50"
                   >
                     ✕
                   </button>
                 </div>
               </div>
 
-              <div className="space-y-4">
+              <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-5 py-4 [scrollbar-gutter:stable]">
                 <ThemeProvider>
-            
-            <BasicTab
-  filter={editingFilter ?? newFilter}
-  isEditing={!!editingFilter}
-  editingFilter={editingFilter}
-  newFilter={newFilter}
-  setNewFilter={setNewFilter}
-  resetNewFilter={resetNewFilter}
-  fetchFilters={fetchFilters}
-  parentMode="modal"
-  onSave={handleSaveFromChild}
-  onCancel={closeModal}
-  setEditingFilter={setEditingFilter}  // <-- add this
-/>
-          </ThemeProvider>
-
-
+                  <BasicTab
+                    key={`${editingFilter?.id ?? 'new'}-${editorSession}`}
+                    filter={editingFilter ?? newFilter}
+                    isEditing={!!editingFilter}
+                    editingFilter={editingFilter}
+                    newFilter={newFilter}
+                    setNewFilter={setNewFilter}
+                    resetNewFilter={resetNewFilter}
+                    fetchFilters={fetchFilters}
+                    parentMode="modal"
+                    onSave={handleSaveFromChild}
+                    onCancel={closeModal}
+                    setEditingFilter={setEditingFilter}
+                  />
+                </ThemeProvider>
               </div>
-            </div>
           </div>
         </div>
       )}

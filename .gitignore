@@ -42,3 +42,14 @@ next-env.d.ts
 
 # generated tailwind (built by scripts/build-tailwind.js)
 app/tailwind-generated.ts
+
+# local Python venv (never commit)
+.venv/
+venv/
+
+# large screen recordings / binaries (use Git LFS or external storage if needed)
+/videos/
+*.mkv
+
+# LibreOffice lock files
+.~lock.*

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -20,68 +20,24 @@ import {
 import Autocomplete from '@mui/material/Autocomplete';
 import CircularProgress from '@mui/material/CircularProgress';
 import { AddCircleOutline, RemoveCircleOutline, ExpandMore } from '@mui/icons-material';
+import type {
+  WhereCondition,
+  NestedQuery,
+  WindowFunctionConfig,
+  JoinType,
+  JoinConfig,
+  QueryBuilderData,
+} from './filter-manager/types';
+import {
+  sqlStatements,
+  operators,
+  logicalOperators,
+  aggregateFunctions,
+  windowFunctions,
+  orderingStrategies,
+} from './filter-manager/queryBuilder.constants';
 
-// Types
-export interface WhereCondition {
-  id: number;
-  field: string;
-  operator: string;
-  value: string;
-  logicalOperator: string;
-  conditionGroup: number;
-  valueType?: 'constant' | 'nested';
-  nestedQuery?: NestedQuery;
-}
-
-export interface NestedQuery {
-  function: string;
-  table: string;
-  column: string;
-  filters: WhereCondition[];
-  nestedQuery?: NestedQuery;
-}
-
-export interface WindowFunctionConfig {
-  id: number;
-  functionName: string;
-  alias: string;
-  column: string;
-  nValue: number;
-  offsetValue: number;
-  defaultValue: string;
-  partitionBy: string;
-  orderBy: string;
-  orderingStrategy: string;
-  frameClause: string;
-}
-
-export type JoinType = 'INNER' | 'LEFT' | 'RIGHT' | 'FULL OUTER' | 'CROSS' | 'SELF';
-
-export interface JoinConfig {
-  joinType: JoinType;
-  primaryTable: string;
-  primaryAlias: string;
-  primaryColumn: string;
-  secondaryTable: string;
-  secondaryAlias: string;
-  secondaryColumn: string;
-  joinCondition: string;
-  outputColumns: { tableAlias: string; column: string; selected: boolean }[];
-}
-
-export interface QueryBuilderData {
-  statement: string;
-  columns: string;
-  tableName: string;
-  whereConditions: WhereCondition[];
-  groupBy: string;
-  having: string;
-  orderBy: string;
-  limit: string;
-  windowFunctionConfigs: WindowFunctionConfig[];
-  joinConfig: JoinConfig;
-  queryPreview: string;
-}
+export type { QueryBuilderData };
 
 interface QueryBuilderProps {
   initialData?: QueryBuilderData;
@@ -90,40 +46,6 @@ interface QueryBuilderProps {
   tablesUsed?: string;
   onTablesUsedChange?: (tables: string) => void;
 }
-
-// Constants
-const sqlStatements = ['SELECT', 'COUNT', 'SUM', 'AVG', 'MIN', 'MAX'];
-const operators = ['=', '!=', '>', '<', '>=', '<=', 'IN', 'LIKE'];
-const logicalOperators = ['AND', 'OR'];
-const aggregateFunctions = ['MAX', 'MIN', 'AVG', 'COUNT', 'SUM'];
-
-const windowFunctions = {
-  aggregate: {
-    label: 'Aggregate Functions',
-    functions: ['SUM', 'AVG', 'COUNT', 'MAX', 'MIN']
-  },
-  ranking: {
-    label: 'Ranking Functions',
-    functions: ['ROW_NUMBER', 'RANK', 'DENSE_RANK', 'NTILE']
-  },
-  value: {
-    label: 'Value Functions',
-    functions: ['LAG', 'LEAD', 'FIRST_VALUE', 'LAST_VALUE', 'NTH_VALUE']
-  },
-  distribution: {
-    label: 'Distribution Functions',
-    functions: ['PERCENT_RANK', 'CUME_DIST']
-  }
-};
-
-const orderingStrategies = [
-  { value: 'across', label: 'Across (ORDER BY column1)', description: 'Sort across row-like dimension' },
-  { value: 'down', label: 'Down (ORDER BY column2)', description: 'Sort by vertical/hierarchical field' },
-  { value: 'across_then_down', label: 'Across then Down', description: 'Prioritize row dimension, then column' },
-  { value: 'down_then_across', label: 'Down then Across', description: 'Prioritize column dimension, then row' },
-  { value: 'nested_loop', label: 'Nested Loop-like', description: 'Repeats logic over subgroups' },
-  { value: 'custom', label: 'Custom', description: 'Define your own ordering' }
-];
 
 // NestedQueryBuilder Component
 const NestedQueryBuilder = ({
@@ -357,6 +279,51 @@ const QueryBuilder: React.FC<QueryBuilderProps> = ({
   const [fieldsLoading, setFieldsLoading] = useState(false);
   const [fieldOptionsMap, setFieldOptionsMap] = useState<{ [table: string]: { label: string; value: string }[] }>({});
   const [tableInputValue, setTableInputValue] = useState('');
+  const lastHydratedKeyRef = useRef<string>('');
+
+  // Re-hydrate internal state when parent provides edit data after mount.
+  const initialDataKey = useMemo(() => {
+    if (!initialData) return '';
+    try {
+      return JSON.stringify(initialData);
+    } catch {
+      return '';
+    }
+  }, [initialData]);
+
+  useEffect(() => {
+    if (!initialData || !initialDataKey) return;
+    if (lastHydratedKeyRef.current === initialDataKey) return;
+
+    setStatement(initialData.statement || sqlStatements[0]);
+    setColumns(initialData.columns || '*');
+    setTableName(initialData.tableName || '');
+    setTableInputValue(initialData.tableName || '');
+    setWhereConditions(
+      Array.isArray(initialData.whereConditions) && initialData.whereConditions.length
+        ? initialData.whereConditions
+        : [{ id: 1, field: '', operator: '=', value: '', logicalOperator: 'AND', conditionGroup: 1, valueType: 'constant' }]
+    );
+    setGroupBy(initialData.groupBy || '');
+    setHaving(initialData.having || '');
+    setOrderBy(initialData.orderBy || '');
+    setLimit(initialData.limit || '');
+    setWindowFunctionConfigs(Array.isArray(initialData.windowFunctionConfigs) ? initialData.windowFunctionConfigs : []);
+    setJoinConfig(
+      initialData.joinConfig || {
+        joinType: 'INNER',
+        primaryTable: '',
+        primaryAlias: 'c',
+        primaryColumn: '',
+        secondaryTable: '',
+        secondaryAlias: 'o',
+        secondaryColumn: '',
+        joinCondition: '',
+        outputColumns: []
+      }
+    );
+    lastHydratedKeyRef.current = initialDataKey;
+  }, [initialData, initialDataKey]);
 
   // Update tables used when relevant fields change
   useEffect(() => {

@@ -1,0 +1,109 @@
+ID,Hierarchy,Parent,Name,,Alias,Purpose,Input,High Level Logic,Output
+1,1,-,FilterManager Page,,FM_Page,"Provides a dedicated entry point for managing all filters.
+Keeps filter administration separated from dashboard execution pages.
+Acts as the top-level container route for filter operations.","Top navigation selection state from the main app.
+User click on the FilterManager menu item.
+Initial page load context and shared app shell.","Checks selected menu key in the main page router.
+Mounts the FilterManager component when the key matches.
+Delegates all filter CRUD and UI behavior to child logic.","Filter management screen becomes visible.
+Users can browse, create, edit, duplicate, and delete filters.
+Page-level ownership of filter workflow is established."
+2,2,FilterManager Page,FilterManager Main Container,,FM_Main,"Central controller for filter lifecycle management.
+Coordinates API communication, local UI state, and modal flows.
+Maintains list, selection, edit mode, and error/loading states.","Filter API responses from backend endpoints.
+User actions: refresh, create, edit, duplicate, delete, bulk select.
+Modal actions from embedded BasicTab editor.","Fetches and normalizes filter data into internal state.
+Routes actions to save/delete handlers and updates list after changes.
+Controls modal open/close and passes data/callbacks to BasicTab.","Synchronized filter list and actionable UI.
+Stable CRUD experience with feedback for loading/errors.
+Consistent state transitions for all filter operations."
+3,3,FilterManager Main Container,Filter List Section,,FM_FilterList,"Presents all available filters in an operational list format.
+Provides quick per-item visibility and status context.
+Enables scalable browsing and bulk selection for maintenance tasks.","Normalized filter array from FilterManager state.
+Checkbox selection state and row action callbacks.
+Display metadata such as type, active state, and API tag.","Iterates through filters and renders one card per record.
+Binds edit/duplicate/delete actions to each card control.
+Updates selection state for individual and bulk operations.","Interactive list of filters with actionable controls.
+Fast identification of active/inactive and configured filters.
+Bulk operations become available when selections exist."
+4,3,FilterManager Main Container,Create/Edit Modal Shell,,FM_FilterModal,"Creates a focused workspace for filter authoring.
+Supports both create and edit flows with shared UI.
+Reduces accidental page interactions during configuration.","Modal visibility flag and editing/new filter payload.
+Save and cancel callbacks from parent controller.
+Theme wrapper and BasicTab child component.","Renders backdrop and centered modal container.
+Loads BasicTab with mode-specific props and handlers.
+Closes modal on cancel/backdrop and resets transient state.","Guided form experience for filter definition changes.
+Safe create/edit workflow with clear commit points.
+Modal lifecycle tied cleanly to parent state."
+5,4,Create/Edit Modal Shell,BasicTab Editor,,FM_BasicTab,"Captures complete filter configuration in structured tabs.
+Separates concerns into basic, styling, events, validation, options, query builder.
+Standardizes payload generation for backend persistence.","Current filter object (new or existing).
+Editing mode, parent save/cancel callbacks, and helper setters.
+User-entered values across all tabbed sections.","Manages active tab and local form state transitions.
+Validates field groups and prepares normalized payload parts.
+Invokes onSave/onCancel callbacks back to parent controller.","Comprehensive filter configuration object.
+Reduced form complexity through segmented tab workflow.
+Reusable editor surface for both create and update use cases."
+6,1,-,DashboardManager Page,,DM_Page,"Provides the main entry point for dashboard administration.
+Separates dashboard design/operations from runtime usage pages.
+Hosts management features for dashboards, widgets, and data sources.","Top navigation selection state from the main app.
+User click on the DashboardManager menu item.
+Shared page shell and routing context.","Evaluates selected menu in top-level page logic.
+Mounts DashboardManager when the menu key is active.
+Passes control to manager component for all domain operations.","Dashboard management workspace is displayed.
+Users can administer structures and linked resources.
+Navigation flow remains consistent with other modules."
+7,2,DashboardManager Page,DashboardManager Main Container,,DM_Main,"Acts as orchestration hub for dashboard ecosystem.
+Combines dashboard, widget, datasource, context menu, and filter assignment workflows.
+Maintains coordinated state across tabs and API pipelines.","API datasets: dashboards, widgets, data sources, filters, mappings.
+User actions from tab controls, CRUD buttons, drag/resize, refresh.
+Modal submissions and assignment interactions.","Initializes and refreshes required datasets.
+Switches behavior by active tab and selected dashboard context.
+Triggers downstream loaders and update handlers after mutations.","Unified administrative control panel.
+Consistent, stateful operations across all dashboard entities.
+Single place to maintain dashboard architecture end-to-end."
+8,3,DashboardManager Main Container,Dashboards Tab,,DM_TabDashboards,"Focuses on dashboard-centric management tasks.
+Displays available dashboards and the currently selected dashboard workspace.
+Enables creation, selection, editing, and deletion at dashboard level.","Dashboard list, selected dashboard record, widget/layout data.
+User actions on dashboard cards and selected panel buttons.
+Drag mode and layout-change interactions.","Renders dashboard cards for browse/select actions.
+Shows selected dashboard details and embedded widget canvas.
+Connects CRUD actions to modal handlers and API updates.","Dashboard-level control with immediate visual context.
+Selected dashboard becomes the active design surface.
+Widget operations remain scoped to current dashboard."
+9,3,DashboardManager Main Container,Widgets Tab,,DM_TabWidgets,"Provides centralized widget inventory management.
+Allows inspection and maintenance beyond a single dashboard view.
+Supports quick edits/deletes and refresh for widget data.","Widgets dataset and dashboard lookup metadata.
+Row-level actions for edit/delete and add/refresh controls.
+Current selection context from manager state.","Renders widgets in a management table layout.
+Maps widget rows to related dashboard names and positions.
+Routes action buttons to widget modal and delete handlers.","Cross-dashboard widget governance surface.
+Faster operational edits without navigating each dashboard.
+Clear tabular visibility of widget distribution and types."
+10,3,DashboardManager Main Container,Data Sources Tab,,DM_TabDataSources,"Manages all data source definitions used by widgets.
+Centralizes endpoint/query/static configuration governance.
+Supports lifecycle operations with validation-backed forms.","Datasource list from API plus modal form state.
+User actions: add, edit, delete, refresh.
+Source-type specific fields (API/SQL/STATIC) entered by user.","Displays data sources in table with actionable controls.
+Opens DataSourceModal for create/update with typed validation.
+Persists mutations and refreshes list on successful operations.","Reliable catalog of widget data providers.
+Cleaner ownership of connection and payload definitions.
+Updated datasource records immediately reflected in manager."
+11,3,DashboardManager Main Container,Create Context Menu Tab,,DM_TabContextMenu,"Provides configuration space for widget context menus.
+Maintains menu trees and assignment links to widgets.
+Extends widget interactivity through managed menu actions.","Context menu records, widget records, assignment mappings.
+User-entered menu metadata and assignment selections.
+CRUD operations triggered from tab UI.","Loads ContextMenuTab component inside manager tab frame.
+Executes create/update/delete flows for menus and assignments.
+Refreshes local state after each successful mutation.","Structured context-menu definitions are maintained.
+Widgets can be linked to actionable menu entries.
+Interactive behavior metadata becomes administratively manageable."
+12,3,DashboardManager Main Container,Assign Filters Tab,,DM_TabAssignFilters,"Controls filter assignment at dashboard and widget scopes.
+Allows selective binding of reusable filters to targets.
+Improves governance of filter applicability across dashboards.","Dashboards, widgets, filters, and existing assignment mappings.
+Scope selection (dashboard or widget) and selected filter IDs.
+Save action to persist mapping payload.","Renders AssignFiltersTab with scope-aware selection UI.
+Loads assigned filter IDs for the chosen target context.
+Saves updated mapping set to backend assignment endpoint.","Filter-to-target mappings are persisted and visible.
+Dashboard/widget behavior can be tuned via assigned filters.
+Reusable filter strategy becomes centrally enforceable."

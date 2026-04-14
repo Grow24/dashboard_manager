@@ -1,0 +1,26 @@
+ID,Hierarchy,Parent,Name,Alias,Location,Description
+1,1,-,DashboardManager Page,DM_Page,app/page.tsx + app/DashboardManager.tsx,Top-menu entry DashboardManager opens this page component.
+2,2,DashboardManager Page,Top Navigation Hook,DM_MenuLink,app/page.tsx,selectedMenu === 'DashboardManager' renders <DashboardManager />.
+3,2,DashboardManager Page,DashboardManager (Main Container),DM_Main,app/DashboardManager.tsx,Main orchestration component: tabs, CRUD, layout, API integration.
+4,3,DashboardManager (Main Container),Header Actions Bar,DM_HeaderActions,app/DashboardManager.tsx,"Buttons: Create Dashboard, Drag Mode, tab switches, Refresh."
+5,3,DashboardManager (Main Container),Dashboards Tab,DM_Tab_Dashboards,app/DashboardManager.tsx,Shows dashboard cards and selected dashboard visual area.
+6,3,DashboardManager (Main Container),Widgets Tab,DM_Tab_Widgets,app/DashboardManager.tsx,"Tabular widget management (edit/delete/add/refresh)."
+7,3,DashboardManager (Main Container),Data Sources Tab,DM_Tab_DataSources,app/DashboardManager.tsx,Tabular data source management.
+8,3,DashboardManager (Main Container),Create Context Menu Tab,DM_Tab_ContextMenu,app/DashboardManager.tsx,Loads separate context-menu management component.
+9,3,DashboardManager (Main Container),Assign Filters Tab,DM_Tab_AssignFilters,app/DashboardManager.tsx,Loads separate filter-assignment component and assignment grid.
+10,3,Dashboards Tab,DashboardCard,DM_DashboardCard,app/DashboardManager.tsx,"Individual dashboard tile with select/edit/delete/drop handling."
+11,3,Dashboards Tab,Selected Dashboard Panel,DM_SelectedDashboardPanel,app/DashboardManager.tsx,Displays selected dashboard info and widget grid container.
+12,4,Selected Dashboard Panel,GridLayout (Widget Canvas),DM_WidgetGrid,app/DashboardManager.tsx,Responsive drag/resize layout for widgets.
+13,4,GridLayout (Widget Canvas),WidgetComponent,DM_WidgetRenderer,app/DashboardManager.tsx,Per-widget renderer with data + type-based UI rendering.
+14,5,WidgetComponent,KPIView,DM_KPIView,app/DashboardManager.tsx,KPI value/trend visual display.
+15,5,WidgetComponent,Chart Renderer Block,DM_ChartBlock,app/DashboardManager.tsx,Renders chart-like visuals from normalized data.
+16,5,WidgetComponent,Table Renderer Block,DM_TableBlock,app/DashboardManager.tsx,Renders normalized table rows/columns.
+17,5,WidgetComponent,Text Renderer Block,DM_TextBlock,app/DashboardManager.tsx,Renders textual widget content.
+18,5,WidgetComponent,Map Renderer Block,DM_MapBlock,app/DashboardManager.tsx,MAP type logic with dynamic leaflet component loading.
+19,5,WidgetComponent,RecursiveMenu,DM_RecursiveContextMenu,app/DashboardManager.tsx,Nested context-menu rendering tree.
+20,3,DashboardManager (Main Container),DashboardModal,DM_Modal_Dashboard,app/DashboardManager.tsx,Create/Edit dashboard modal.
+21,3,DashboardManager (Main Container),WidgetModal,DM_Modal_Widget,app/DashboardManager.tsx,Create/Edit widget modal + preview + config fields.
+22,3,DashboardManager (Main Container),DataSourceModal,DM_Modal_DataSource,app/DashboardManager.tsx,Create/Edit datasource modal with JSON config fields.
+23,2,DashboardManager Page,ContextMenuTab (Separate Component),DM_Separate_ContextMenuTab,app/ContextMenuTab.tsx,Full CRUD for context menus and widget-context assignments.
+24,2,DashboardManager Page,AssignFiltersTab (Separate Component),DM_Separate_AssignFiltersTab,app/AssignFiltersTab.tsx,Assign filters at dashboard/widget scope.
+25,2,DashboardManager Page,MapWidget (Separate Component dynamic),DM_Separate_MapWidget,components/MapWidget.tsx,Dynamically imported map widget for MAP visual type.

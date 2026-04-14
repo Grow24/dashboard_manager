@@ -1,4 +1,4 @@
-import React, { useState, useEffect, createContext, useContext, useCallback } from 'react';
+import React, { useState, useEffect, createContext, useContext, useCallback, useMemo } from 'react';
 // import debounce from 'lodash.debounce'; // Unused
 import Autocomplete from '@mui/material/Autocomplete';
 import TextField from '@mui/material/TextField';
@@ -6,7 +6,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import Typography from '@mui/material/Typography';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
-import Select from '@mui/material/Select';
+import Select, { SelectChangeEvent } from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
@@ -18,6 +18,25 @@ import { AddCircleOutline, RemoveCircleOutline, ExpandMore } from '@mui/icons-ma
 // Also import icons you use:
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
+import { createTheme, ThemeProvider as MuiThemeProvider } from '@mui/material/styles';
+import type { FilterRecord } from './filter-manager/types';
+import {
+  sqlStatements,
+  operators,
+  logicalOperators,
+  aggregateFunctions,
+  windowFunctions,
+  orderingStrategies,
+} from './filter-manager/queryBuilder.constants';
+import SharedQueryBuilder, { QueryBuilderData } from './filter-manager/SharedQueryBuilder';
+import {
+  BasicTabBasicSection,
+  BasicTabStylingSection,
+  BasicTabEventsSection,
+  BasicTabValidationSection,
+  BasicTabOptionsSection,
+  BasicTabQueryBuilderSection,
+} from './filter-manager/sections/BasicTabSections';
 // --- QB Hydration helpers ---
 const useQbHydration = () => {
   const [qbHydrated, setQbHydrated] = React.useState(false);
@@ -33,43 +52,7 @@ const safeParseQB = (qb: unknown) => {
     return null;
   }
 };
-interface Filter {
-  id?: string;
-  name: string;
-  type: 'text' | 'number' | 'date' | 'select' | 'query' | 'lookup' | 'component';
-  config?: Record<string, unknown>;
-  createdAt?: string | Date;
-  updatedAt?: string | Date;
-  isActive?: boolean;
-  description?: string;
-  tags?: string[];
-  field?: string;
-  defaultValue?: unknown;
-  placeholder?: string;
-  required?: boolean;
-  visible?: boolean;
-  position?: number;
-  min?: number | string;
-  max?: number | string;
-  pattern?: string;
-  options?: string[];
-  multiSelect?: boolean;
-  allowCustom?: boolean;
-  advancedConfig?: string | object;
-  webapi?: string;
-  webapiType?: 'static' | 'dynamic';
-  staticOptions?: string;
-  cssClass?: string;
-  inlineStyle?: string;
-  onClickHandler?: string;
-  onBlurHandler?: string;
-  onChangeHandler?: string;
-  onFocusHandler?: string;
-  onKeyDownHandler?: string;
-  onKeyUpHandler?: string;
-  queryPreview?: boolean;
-  filterApply?: 'Live' | 'Manual';
-}
+type Filter = FilterRecord;
 
 interface ValidationErrors {
   name?: string;
@@ -82,6 +65,7 @@ interface ValidationErrors {
   webapiType?: string;
   staticOptions?: string;
   inlineStyle?: string;
+  pattern?: string;
 }
 
 // New props for parent mode
@@ -90,13 +74,13 @@ interface BasicTabProps {
   isEditing?: boolean;
   editingFilter?: Filter | null;
   newFilter?: Partial<Filter>;
-  setNewFilter?: (filter: Partial<Filter>) => void;
+  setNewFilter?: React.Dispatch<React.SetStateAction<Partial<Filter>>>;
   resetNewFilter?: () => void;
   fetchFilters?: () => void;
   parentMode?: 'modal' | 'inline';
   onSave?: (filterData: Partial<Filter>, isEditing?: boolean) => Promise<boolean> | boolean;
   onCancel?: () => void;
-  setEditingFilter?: (filter: Filter | null) => void;
+  setEditingFilter?: React.Dispatch<React.SetStateAction<Filter | null>>;
 }
 
 // --- Theme Context and Provider ---
@@ -150,9 +134,8 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>
-      {/* Keep wrapper if components use nested dark: styles; but since we also set document root class,
-          this is mostly a convenience and does no harm. */}
-      <div className={theme === 'dark' ? 'dark' : ''}>
+      {/* min-h-0 lets flex parents pass a bounded height so nested scroll regions work */}
+      <div className={`min-h-0 w-full ${theme === 'dark' ? 'dark' : ''}`}>
         {children}
       </div>
     </ThemeContext.Provider>
@@ -191,40 +174,7 @@ export const useTheme = () => {
 
 // --- Query Builder Inner Components and Types ---
 
-const sqlStatements = ['SELECT', 'COUNT', 'SUM', 'AVG', 'MIN', 'MAX'];
-const operators = ['=', '!=', '>', '<', '>=', '<=', 'IN', 'LIKE'];
-const logicalOperators = ['AND', 'OR'];
-
-const windowFunctions = {
-  aggregate: {
-    label: 'Aggregate Functions',
-    functions: ['SUM', 'AVG', 'COUNT', 'MAX', 'MIN']
-  },
-  ranking: {
-    label: 'Ranking Functions', 
-    functions: ['ROW_NUMBER', 'RANK', 'DENSE_RANK', 'NTILE']
-  },
-  value: {
-    label: 'Value Functions',
-    functions: ['LAG', 'LEAD', 'FIRST_VALUE', 'LAST_VALUE', 'NTH_VALUE']
-  },
-  distribution: {
-    label: 'Distribution Functions',
-    functions: ['PERCENT_RANK', 'CUME_DIST']
-  }
-};
-
-const orderingStrategies = [
-  { value: 'across', label: 'Across (ORDER BY column1)', description: 'Sort across row-like dimension' },
-  { value: 'down', label: 'Down (ORDER BY column2)', description: 'Sort by vertical/hierarchical field' },
-  { value: 'across_then_down', label: 'Across then Down', description: 'Prioritize row dimension, then column' },
-  { value: 'down_then_across', label: 'Down then Across', description: 'Prioritize column dimension, then row' },
-  { value: 'nested_loop', label: 'Nested Loop-like', description: 'Repeats logic over subgroups' },
-  { value: 'custom', label: 'Custom', description: 'Define your own ordering' }
-];
-
 // --- Nested Query Types ---
-const aggregateFunctions = ['MAX', 'MIN', 'AVG', 'COUNT', 'SUM'];
 
 interface NestedQuery {
   function: string;
@@ -482,7 +432,37 @@ const BasicTab: React.FC<BasicTabProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [_localFilter, setLocalFilter] = React.useState<Partial<Filter>>({});
   const { theme, toggleTheme } = useTheme();
-const { qbHydrated, setQbHydrated } = useQbHydration();
+const { setQbHydrated } = useQbHydration();
+
+  /** Isolated light theme for MUI Query Builder (avoids broken contrast inside Tailwind/dark modal). */
+  const queryBuilderMuiTheme = useMemo(
+    () =>
+      createTheme({
+        palette: {
+          mode: 'light',
+          background: { paper: '#ffffff', default: '#f9fafb' },
+          text: { primary: '#111827', secondary: '#4b5563' },
+          divider: '#e5e7eb',
+        },
+        shape: { borderRadius: 8 },
+        zIndex: { modal: 3000, snackbar: 3000, tooltip: 3100 },
+        components: {
+          MuiAccordion: {
+            styleOverrides: {
+              root: {
+                width: '100%',
+                '&:before': { display: 'none' },
+                boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
+              },
+            },
+          },
+          MuiOutlinedInput: {
+            styleOverrides: { root: { backgroundColor: '#ffffff' } },
+          },
+        },
+      }),
+    []
+  );
 
   const filter = React.useMemo(
   () => (isEditing ? editingFilter ?? {} : propFilter ?? newFilter ?? {}),
@@ -522,6 +502,34 @@ const { qbHydrated, setQbHydrated } = useQbHydration();
     outputColumns: []
   });
 
+  const currentQueryBuilderData: QueryBuilderData = {
+    name,
+    statement,
+    columns,
+    tableName,
+    whereConditions,
+    groupBy,
+    having,
+    orderBy,
+    limit,
+    windowFunctionConfigs,
+    joinConfig,
+    queryPreview: '',
+  };
+
+  const handleSharedQueryChange = useCallback((qb: QueryBuilderData) => {
+    setStatement(qb.statement);
+    setColumns(qb.columns);
+    setTableName(qb.tableName);
+    setWhereConditions(qb.whereConditions);
+    setGroupBy(qb.groupBy);
+    setHaving(qb.having);
+    setOrderBy(qb.orderBy);
+    setLimit(qb.limit);
+    setWindowFunctionConfigs(qb.windowFunctionConfigs);
+    setJoinConfig(qb.joinConfig);
+  }, []);
+
   // For table names dropdown
   const [tableOptions, setTableOptions] = useState<string[]>([]);
   const [tableLoading, setTableLoading] = useState(false);
@@ -549,8 +557,8 @@ const { qbHydrated, setQbHydrated } = useQbHydration();
             if (!res.ok) throw new Error('Failed to fetch tables');
             const data: string[] = await res.json();
             setTableOptions(data);
-          } catch {
-            console.error(e);
+          } catch (err) {
+            console.error(err);
             setTableOptions([]);
           } finally {
             setTableLoading(false);
@@ -576,6 +584,83 @@ useEffect(() => {
       setFieldOptionsMap(prev => ({ ...prev, [table]: [] }));
     }
   }, [fieldOptionsMap]);
+
+  /** Columns for WHERE / window-function pickers: in join mode use alias.column for both tables. */
+  const queryBuilderColumnOptions = useMemo(() => {
+    if (joinConfig.primaryTable && joinConfig.secondaryTable) {
+      const pa = joinConfig.primaryAlias || joinConfig.primaryTable;
+      const sa = joinConfig.secondaryAlias || joinConfig.secondaryTable;
+      const pcols = fieldOptionsMap[joinConfig.primaryTable] || [];
+      const scols = fieldOptionsMap[joinConfig.secondaryTable] || [];
+      return [
+        ...pcols.map(c => ({ label: `${pa}.${c.label} (primary)`, value: `${pa}.${c.value}` })),
+        ...scols.map(c => ({ label: `${sa}.${c.label} (secondary)`, value: `${sa}.${c.value}` })),
+      ];
+    }
+    return fieldOptions;
+  }, [
+    joinConfig.primaryTable,
+    joinConfig.secondaryTable,
+    joinConfig.primaryAlias,
+    joinConfig.secondaryAlias,
+    fieldOptions,
+    fieldOptionsMap,
+  ]);
+
+  /** Qualify bare column names for WHERE / window SQL (table.column or join alias.column). */
+  const qualifyColumnRef = useCallback(
+    (raw: string) => {
+      const col = raw?.trim();
+      if (!col) return col;
+      if (col === '*') return col;
+
+      const jc = joinConfig;
+      const hasJoin = !!(jc.primaryTable && jc.secondaryTable);
+
+      if (hasJoin) {
+        if (col.includes('.')) return col;
+        const pa = jc.primaryAlias || jc.primaryTable;
+        const sa = jc.secondaryAlias || jc.secondaryTable;
+        const pcols = new Set((fieldOptionsMap[jc.primaryTable] || []).map(c => c.value));
+        const scols = new Set((fieldOptionsMap[jc.secondaryTable] || []).map(c => c.value));
+        const inP = pcols.has(col);
+        const inS = scols.has(col);
+        if (inP && !inS) return `${pa}.${col}`;
+        if (inS && !inP) return `${sa}.${col}`;
+        if (inP && inS) return `${pa}.${col}`;
+        return `${pa}.${col}`;
+      }
+
+      if (col.includes('.')) {
+        const base = col.slice(col.lastIndexOf('.') + 1);
+        if (tableName.trim()) return `${tableName}.${base}`;
+        return col;
+      }
+      if (tableName.trim()) return `${tableName}.${col}`;
+      return col;
+    },
+    [joinConfig, fieldOptionsMap, tableName]
+  );
+
+  const qualifySqlList = useCallback(
+    (expr: string) => {
+      if (!expr?.trim()) return expr;
+      return expr
+        .split(',')
+        .map(part => {
+          const p = part.trim();
+          if (!p) return p;
+          const dirMatch = p.match(/^(.+?)(\s+(ASC|DESC))$/i);
+          if (dirMatch) {
+            return `${qualifyColumnRef(dirMatch[1].trim())}${dirMatch[2]}`;
+          }
+          return qualifyColumnRef(p);
+        })
+        .join(', ');
+    },
+    [qualifyColumnRef]
+  );
+
   // ✅ Hydrate QueryBuilder tab fields when editing an existing filter
 // ✅ Hydrate QueryBuilder tab fields when editing an existing filter
 useEffect(() => {
@@ -627,7 +712,10 @@ useEffect(() => {
     }
   );
 
-  // Prefetch fields for table and join tables
+  // Mark hydrated immediately so the "tab → queryBuilder" reset effect cannot wipe state while column fetch is still in flight.
+  setQbHydrated(true);
+
+  // Prefetch fields for table and join tables (async; does not gate hydration)
   (async () => {
     try {
       if (qb.tableName) {
@@ -643,21 +731,19 @@ useEffect(() => {
       }
       if (qb.joinConfig?.primaryTable) await fetchFieldsForTable(qb.joinConfig.primaryTable);
       if (qb.joinConfig?.secondaryTable) await fetchFieldsForTable(qb.joinConfig.secondaryTable);
-    } finally {
-      setQbHydrated(true);
+    } catch {
+      /* column fetch is best-effort */
     }
   })();
 }, [isEditing, editingFilter?.id]);
 
-  // Reset form when tab changes to queryBuilder
-  // Reset form when tab changes to queryBuilder
+  // Reset form when tab changes to queryBuilder (create flow only — never clobber loaded edit data)
 useEffect(() => {
   if (activeTab !== 'queryBuilder') return;
 
-  // If editing and we already hydrated QB, do not reset.
-  if (isEditing && qbHydrated) return;
+  if (isEditing) return;
 
-  // Create mode defaults (or edit mode with no QB data)
+  // Create mode defaults
   setName(filter.name || '');
   setStatement(sqlStatements[0]);
   setColumns('*');
@@ -694,7 +780,7 @@ useEffect(() => {
     joinCondition: '',
     outputColumns: [],
   });
-}, [activeTab, isEditing, qbHydrated, filter?.name]);
+}, [activeTab, isEditing, filter?.name]);
 
   // When user types in table name input
   const handleTableInputChange = (_event: unknown, value: string, reason: string) => {
@@ -709,7 +795,7 @@ useEffect(() => {
 }
 
 function _handleFilterChange(_event: React.ChangeEvent) {
-  console.log('Filter changed', _event.target.value);
+  console.log('Filter changed', (_event.target as HTMLInputElement).value);
 }
 function validateCssCode(css: string): string | null {
   if (!css || css.trim() === '') return null;
@@ -773,10 +859,11 @@ useEffect(() => {
       setFieldOptions(options);
       setFieldOptionsMap(prev => ({ ...prev, [tableName]: options }));
 
-      // Normalize only invalid fields (don’t overwrite valid user selections)
+      // Normalize only invalid fields (don’t overwrite valid user selections).
+      // Keep alias-qualified fields (join / saved queries) even if not in this table’s bare column list.
       setWhereConditions(conds =>
         conds.map(cond =>
-          options.find(o => o.value === cond.field)
+          (cond.field && (cond.field.includes('.') || options.find(o => o.value === cond.field)))
             ? cond
             : { ...cond, field: options.length ? options[0].value : '' }
         )
@@ -873,7 +960,7 @@ useEffect(() => {
       ...conds,
       {
         id: conds.length ? Math.max(...conds.map(c => c.id)) + 1 : 1,
-        field: fieldOptions.length ? fieldOptions[0].value : '',
+        field: queryBuilderColumnOptions.length ? queryBuilderColumnOptions[0].value : '',
         operator: '=',
         value: '',
         logicalOperator: 'AND',
@@ -909,7 +996,7 @@ useEffect(() => {
         defaultValue: '',
         partitionBy: '',
         orderBy: '',
-        orderingStrategy: 'custom',
+        orderingStrategy: 'across',
         frameClause: ''
       }
     ]);
@@ -925,54 +1012,128 @@ useEffect(() => {
     );
   };
 
-  // Generate ORDER BY clause based on strategy
-  const generateOrderByFromStrategy = (strategy: string, config: WindowFunctionConfig) => {
-    const fields = fieldOptions.map(f => f.value);
-    if (fields.length < 2) return config.orderBy;
+  /**
+   * Column names for window ORDER BY presets when the API column picker is empty or still loading.
+   * Parses the SELECT "columns" field (e.g. `id, name` or `c.amount`) so preview still shows ORDER BY.
+   */
+  const getFieldsFromColumnsInput = (): string[] => {
+    const c = columns?.trim();
+    if (!c || c === '*') return [];
+    return c
+      .split(',')
+      .map(part => {
+        const raw = part.trim();
+        if (!raw) return '';
+        const woAs = raw.replace(/\s+AS\s+["'`]?\w+["'`]?$/i, '').trim();
+        const first = woAs.split(/\s+/)[0] || '';
+        return first.replace(/^[`'"[(]+|[\]`')\]]+$/g, '');
+      })
+      .filter(Boolean);
+  };
 
+  /**
+   * ORDER BY expression inside OVER (...). Used for preview + SQL.
+   * - custom: user text only
+   * - presets: API column list, else parsed SELECT list, else window column
+   */
+  const getWindowOverOrderBy = (config: WindowFunctionConfig): string => {
+    const rawStrategy = config.orderingStrategy || 'custom';
+
+    if (rawStrategy === 'custom' && config.orderBy?.trim()) {
+      return qualifySqlList(config.orderBy);
+    }
+
+    // "Custom" with no text: still emit ORDER BY from columns when possible (fixes empty preview / old saves).
+    const strategy = rawStrategy === 'custom' ? 'across' : rawStrategy;
+
+    let fields = queryBuilderColumnOptions.map(f => f.value).filter(v => Boolean(v?.trim()));
+    if (fields.length < 1) {
+      fields = getFieldsFromColumnsInput();
+    }
+    if (fields.length < 1) {
+      const only = config.column?.trim();
+      if (only) {
+        fields = [only];
+      } else {
+        return '';
+      }
+    }
+
+    const withDir = (name: string, dir: 'ASC' | 'DESC') => {
+      if (!name?.trim()) return '';
+      const base = qualifyColumnRef(name.trim());
+      return base ? `${base} ${dir}` : '';
+    };
+
+    const selected = config.column?.trim();
+    const primary = selected || fields[0] || '';
+    const pickOtherThan = (not: string) => {
+      const found = fields.find(f => f !== not);
+      return found ?? fields[1] ?? fields[0] ?? '';
+    };
+    const secondary = selected ? pickOtherThan(selected) : fields[1] || fields[0] || '';
+
+    // Presets use explicit ASC/DESC so switching strategies changes the SQL even when only one column exists.
     switch (strategy) {
       case 'across':
-        return fields[0] || '';
+        return withDir(primary, 'ASC');
       case 'down':
-        return fields[1] || fields[0] || '';
+        return withDir(secondary, 'DESC');
       case 'across_then_down':
-        return fields.length >= 2 ? `${fields[0]}, ${fields[1]}` : fields[0] || '';
+        return fields.length >= 2
+          ? `${withDir(primary, 'ASC')}, ${withDir(secondary, 'ASC')}`
+          : `${withDir(primary, 'ASC')}, ${withDir(secondary, 'DESC')}`;
       case 'down_then_across':
-        return fields.length >= 2 ? `${fields[1]}, ${fields[0]}` : fields[0] || '';
+        return fields.length >= 2
+          ? `${withDir(secondary, 'DESC')}, ${withDir(primary, 'DESC')}`
+          : `${withDir(secondary, 'DESC')}, ${withDir(primary, 'ASC')}`;
       case 'nested_loop':
-        return fields.slice(0, 2).join(', ');
+        return fields.length >= 2
+          ? `${withDir(primary, 'ASC')}, ${withDir(secondary, 'DESC')}`
+          : `${withDir(primary, 'ASC')}, ${withDir(primary, 'DESC')}`;
       default:
-        return config.orderBy;
+        return config.orderBy?.trim() ? qualifySqlList(config.orderBy) : '';
     }
   };
 
   // Build window function SQL
   const buildWindowFunctionSQL = (config: WindowFunctionConfig) => {
+    const syntheticFirst = getFieldsFromColumnsInput()[0];
+    const fallbackCol = queryBuilderColumnOptions[0]?.value || syntheticFirst || 'column';
     let sql = config.functionName;
     if (['SUM', 'AVG', 'COUNT', 'MAX', 'MIN'].includes(config.functionName)) {
-      sql += `(${config.column || '*'})`;
+      const c = config.column?.trim();
+      if (config.functionName === 'COUNT' && (!c || c === '*')) {
+        sql += '(*)';
+      } else {
+        sql += `(${qualifyColumnRef(c || fallbackCol)})`;
+      }
     } else if (config.functionName === 'NTILE') {
       sql += `(${config.nValue || 1})`;
     } else if (['LAG', 'LEAD'].includes(config.functionName)) {
-      sql += `(${config.column || fieldOptions[0]?.value || 'column'}`;
-      if (config.offsetValue > 1) sql += `, ${config.offsetValue}`;
-      if (config.defaultValue) sql += `, '${config.defaultValue}'`;
+      sql += `(${qualifyColumnRef(config.column || fallbackCol)}`;
+      const off = config.offsetValue != null ? config.offsetValue : 1;
+      const hasDefault = config.defaultValue !== undefined && config.defaultValue !== '';
+      if (hasDefault || off !== 1) {
+        sql += `, ${off}`;
+      }
+      if (hasDefault) {
+        sql += `, '${String(config.defaultValue).replace(/'/g, "''")}'`;
+      }
       sql += ')';
     } else if (config.functionName === 'NTH_VALUE') {
-      sql += `(${config.column || fieldOptions[0]?.value || 'column'}, ${config.nValue || 1})`;
+      sql += `(${qualifyColumnRef(config.column || fallbackCol)}, ${config.nValue || 1})`;
     } else if (['FIRST_VALUE', 'LAST_VALUE'].includes(config.functionName)) {
-      sql += `(${config.column || fieldOptions[0]?.value || 'column'})`;
+      sql += `(${qualifyColumnRef(config.column || fallbackCol)})`;
     } else {
       sql += '()';
     }
     sql += ' OVER (';
-    const overParts = [];
+    const overParts: string[] = [];
     if (config.partitionBy) {
-      overParts.push(`PARTITION BY ${config.partitionBy}`);
+      overParts.push(`PARTITION BY ${qualifySqlList(config.partitionBy)}`);
     }
-    const orderBy = config.orderingStrategy === 'custom' 
-      ? config.orderBy 
-      : generateOrderByFromStrategy(config.orderingStrategy, config);
+    const orderBy = getWindowOverOrderBy(config);
     if (orderBy) {
       overParts.push(`ORDER BY ${orderBy}`);
     }
@@ -988,9 +1149,17 @@ useEffect(() => {
   };
 
   // --- Build Nested Query SQL ---
+  const qualifyNestedColumn = (table: string, raw: string) => {
+    const col = raw?.trim();
+    if (!col || !table?.trim()) return raw;
+    if (col.includes('.')) return col;
+    return `${table}.${col}`;
+  };
+
   const buildNestedQuerySQL = (q: NestedQuery, level = 1): string => {
     if (!q.function || !q.table || !q.column) return '';
-    let sql = `SELECT ${q.function}(${q.column}) FROM ${q.table}`;
+    const selCol = qualifyNestedColumn(q.table, q.column);
+    let sql = `SELECT ${q.function}(${selCol}) FROM ${q.table}`;
     // Filters
     if (q.filters && q.filters.length > 0) {
       const validFilters = q.filters.filter(f => f.field && (f.value || f.valueType === 'nested'));
@@ -1002,14 +1171,15 @@ useEffect(() => {
           } else {
             val = `'${f.value.replace(/'/g, "''")}'`;
           }
-          return `(${f.field} ${f.operator} ${val})${idx < validFilters.length - 1 ? ' ' + f.logicalOperator + ' ' : ''}`;
+          const left = qualifyNestedColumn(q.table, f.field);
+          return `(${left} ${f.operator} ${val})${idx < validFilters.length - 1 ? ' ' + f.logicalOperator + ' ' : ''}`;
         }).join('');
         sql += ` WHERE ${filterStr}`;
       }
     }
     // Nested query as value
     if (q.nestedQuery) {
-      sql += ` AND ${q.column} = (${buildNestedQuerySQL(q.nestedQuery, level + 1)})`;
+      sql += ` AND ${selCol} = (${buildNestedQuerySQL(q.nestedQuery, level + 1)})`;
     }
     return sql;
   };
@@ -1019,7 +1189,16 @@ useEffect(() => {
     // If join is configured (both tables selected), build join query
     if (joinConfig.primaryTable && joinConfig.secondaryTable) {
       // SELECT clause from output columns or fallback to *
-      const selectClause = buildOutputColumnsSQL();
+      let selectClause = buildOutputColumnsSQL();
+
+      if (windowFunctionConfigs.length > 0) {
+        const windowFunctionSQLs = windowFunctionConfigs.map(config => buildWindowFunctionSQL(config));
+        if (selectClause === '*') {
+          selectClause = `*, ${windowFunctionSQLs.join(', ')}`;
+        } else {
+          selectClause = `${selectClause}, ${windowFunctionSQLs.join(', ')}`;
+        }
+      }
 
       // FROM and JOIN clause
       let query = `${statement} ${selectClause} FROM ${joinConfig.primaryTable} AS ${joinConfig.primaryAlias} `;
@@ -1037,7 +1216,7 @@ useEffect(() => {
             } else {
               val = `'${cond.value.replace(/'/g, "''")}'`;
             }
-            return `(${cond.field} ${cond.operator} ${val})${idx < validConditions.length - 1 ? ' ' + cond.logicalOperator + ' ' : ''}`;
+            return `(${qualifyColumnRef(cond.field)} ${cond.operator} ${val})${idx < validConditions.length - 1 ? ' ' + cond.logicalOperator + ' ' : ''}`;
           }).join('');
           query += ` WHERE ${whereStr}`;
         }
@@ -1075,7 +1254,7 @@ useEffect(() => {
           } else {
             val = `'${cond.value.replace(/'/g, "''")}'`;
           }
-          return `(${cond.field} ${cond.operator} ${val})${idx < validConditions.length - 1 ? ' ' + cond.logicalOperator + ' ' : ''}`;
+          return `(${qualifyColumnRef(cond.field)} ${cond.operator} ${val})${idx < validConditions.length - 1 ? ' ' + cond.logicalOperator + ' ' : ''}`;
         }).join('');
         query += ` WHERE ${whereStr}`;
       }
@@ -1128,43 +1307,81 @@ useEffect(() => {
 };
 
  const handleBlur = (fieldName: string) => {
-    setTouched({ ...touched, [fieldName]: true });
+    setTouched(prev => ({ ...prev, [fieldName]: true }));
     validateField(fieldName);
   };
 
-  const dynamicFieldPattern = /^[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*$/;
-  const staticFieldPattern = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+  /** Required field format: table.column */
+  const tableColumnPattern = /^[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*$/;
 
-const validateField = (fieldName: string) => {
+  const formatListForInput = (value: unknown, sep: string): string => {
+    if (value == null) return '';
+
+    const fromArray = (arr: unknown[]): string =>
+      arr
+        .map(item => {
+          if (typeof item === 'string' || typeof item === 'number') return String(item);
+          if (item && typeof item === 'object') {
+            const o = item as Record<string, unknown>;
+            if ('label' in o && o.label != null) return String(o.label);
+            if ('value' in o && o.value != null) return String(o.value);
+          }
+          return String(item);
+        })
+        .filter(Boolean)
+        .join(sep);
+
+    if (Array.isArray(value)) return fromArray(value);
+
+    if (typeof value === 'string') {
+      const t = value.trim();
+      if (t.startsWith('[')) {
+        try {
+          const p = JSON.parse(t);
+          if (Array.isArray(p)) return fromArray(p);
+        } catch {
+          /* show raw if not valid JSON */
+        }
+      }
+      return value;
+    }
+
+    return '';
+  };
+
+const validateField = (fieldName: string, overrides?: Partial<Filter>) => {
+  const f: Partial<Filter> = { ...filter, ...overrides };
   const newErrors = { ...errors };
 
   switch (fieldName) {
-    case 'name':
-      if (!filter.name || filter.name.trim() === '') {
+    case 'name': {
+      const nm = f.name != null ? String(f.name).trim() : '';
+      if (!nm) {
         newErrors.name = 'Filter Name is required';
-      } else if (filter.name.trim().length < 2) {
+      } else if (nm.length < 2) {
         newErrors.name = 'Filter Name must be at least 2 characters';
       } else {
         delete newErrors.name;
       }
       break;
+    }
     case 'type':
-      if (!filter.type) {
+      if (!f.type) {
         newErrors.type = 'Filter Type is required';
       } else {
         delete newErrors.type;
       }
       break;
     case 'webapiType':
-      if (filter.type === 'select' && !filter.webapiType) {
+      if (f.type === 'select' && !f.webapiType) {
         newErrors.webapiType = 'Web API Type is required';
       } else {
         delete newErrors.webapiType;
       }
       break;
     case 'staticOptions':
-      if (filter.type === 'select' && filter.webapiType === 'static') {
-        if (!filter.staticOptions || filter.staticOptions.trim() === '') {
+      if (f.type === 'select' && f.webapiType === 'static') {
+        if (!f.staticOptions || f.staticOptions.trim() === '') {
           newErrors.staticOptions = 'Static values are required';
         } else {
           delete newErrors.staticOptions;
@@ -1174,10 +1391,10 @@ const validateField = (fieldName: string) => {
       }
       break;
     case 'webapi':
-      if (filter.type === 'select' && filter.webapiType === 'dynamic') {
-        if (!filter.webapi || filter.webapi.trim() === '') {
+      if (f.type === 'select' && f.webapiType === 'dynamic') {
+        if (!f.webapi || f.webapi.trim() === '') {
           newErrors.webapi = 'Web API is required for Dynamic type';
-        } else if (!/^https?:\/\//.test(filter.webapi.trim())) {
+        } else if (!/^https?:\/\//.test(f.webapi.trim())) {
           newErrors.webapi = 'Enter a valid URL (http/https)';
         } else {
           delete newErrors.webapi;
@@ -1186,49 +1403,25 @@ const validateField = (fieldName: string) => {
         delete newErrors.webapi;
       }
       break;
-    case 'field':
-  if (!filter.field || filter.field.trim() === '') {
-    newErrors.field = 'Field/Column is required';
-  } else if (filter.field.trim().length < 2) {
-    newErrors.field = 'Field/Column must be at least 2 characters';
-  } else {
-    // ✅ ADD THIS VALIDATION HERE
-    const fieldValue = filter.field.trim();
-    // console.log('fieldValue-----------' + fieldValue);
-    if(filter.webapiType != 'dynamic' && filter.webapiType != 'static'){
-// console.log('fieldValue---1111-------' + fieldValue);
-if (!dynamicFieldPattern.test(fieldValue)) {
+    case 'field': {
+      const fieldValue = (f.field ?? '').trim();
+      if (!fieldValue) {
+        newErrors.field = 'Field/Column is required';
+      } else if (fieldValue.length < 2) {
+        newErrors.field = 'Field/Column must be at least 2 characters';
+      } else if (!tableColumnPattern.test(fieldValue)) {
         newErrors.field = 'Must be in format: tablename.columnname (e.g., sales_data.date)';
       } else {
         delete newErrors.field;
       }
-    } else if (filter.webapiType === 'dynamic') {
-      // For dynamic type: must be tablename.columnname
-      if (!dynamicFieldPattern.test(fieldValue)) {
-        newErrors.field = 'Must be in format: tablename.columnname (e.g., sales_data.date)';
-      } else {
-        delete newErrors.field;
-      }
-    } else if (filter.webapiType === 'static') {
-      // For static type: just columnname
-      if (!staticFieldPattern.test(fieldValue)) {
-        newErrors.field = 'Must be a valid field name (letters, numbers, underscore only)';
-      } else {
-        delete newErrors.field;
-      }
-    } else {
-      delete newErrors.field;
+      break;
     }
-  }
-  break;
 
-    // NOTE: defaultValue and position validations removed here (they are now optional)
-
-    case 'advancedConfig':
-      const advConfigStr = typeof filter.advancedConfig === 'string'
-        ? filter.advancedConfig
-        : filter.advancedConfig
-          ? JSON.stringify(filter.advancedConfig)
+    case 'advancedConfig': {
+      const advConfigStr = typeof f.advancedConfig === 'string'
+        ? f.advancedConfig
+        : f.advancedConfig
+          ? JSON.stringify(f.advancedConfig)
           : '';
       if (advConfigStr.trim()) {
         try {
@@ -1241,9 +1434,10 @@ if (!dynamicFieldPattern.test(fieldValue)) {
         delete newErrors.advancedConfig;
       }
       break;
+    }
     case 'inlineStyle':
-      if (filter.inlineStyle && filter.inlineStyle.trim()) {
-        const styles = filter.inlineStyle.split(';').filter(s => s.trim());
+      if (f.inlineStyle && f.inlineStyle.trim()) {
+        const styles = f.inlineStyle.split(';').filter(s => s.trim());
         const invalidStyles = styles.filter(style => !style.includes(':'));
         if (invalidStyles.length > 0) {
           newErrors.inlineStyle = 'Invalid CSS format. Use "property: value;" format';
@@ -1252,6 +1446,18 @@ if (!dynamicFieldPattern.test(fieldValue)) {
         }
       } else {
         delete newErrors.inlineStyle;
+      }
+      break;
+    case 'pattern':
+      if (f.pattern && String(f.pattern).trim()) {
+        try {
+          new RegExp(String(f.pattern));
+          delete newErrors.pattern;
+        } catch {
+          newErrors.pattern = 'Invalid regular expression';
+        }
+      } else {
+        delete newErrors.pattern;
       }
       break;
   }
@@ -1263,10 +1469,11 @@ if (!dynamicFieldPattern.test(fieldValue)) {
 
  const validateAll = (): boolean => {
   const newErrors: ValidationErrors = {};
+  const resolvedName = String(filter.name ?? name ?? '').trim();
 
-  if (!filter.name || filter.name.trim() === '') {
+  if (!resolvedName) {
     newErrors.name = 'Filter Name is required';
-  } else if (filter.name.trim().length < 2) {
+  } else if (resolvedName.length < 2) {
     newErrors.name = 'Filter Name must be at least 2 characters';
   }
 
@@ -1292,28 +1499,14 @@ if (!dynamicFieldPattern.test(fieldValue)) {
     }
   }
 
-if (!filter.field || filter.field.trim() === '') {
-  newErrors.field = 'Field/Column is required';
-} else if (filter.field.trim().length < 2) {
-  newErrors.field = 'Field/Column must be at least 2 characters';
-} else {
-  // ✅ ADD THIS VALIDATION HERE
-  const fieldValue = filter.field.trim();
-  
-  if (filter.webapiType === 'dynamic') {
-    // For dynamic type: must be tablename.columnname
-    if (!dynamicFieldPattern.test(fieldValue)) {
-      newErrors.field = 'Must be in format: tablename.columnname (e.g., sales_data.date)';
-    }
-  } else if (filter.webapiType === 'static') {
-    // For static type: just columnname
-    if (!staticFieldPattern.test(fieldValue)) {
-      newErrors.field = 'Must be a valid field name (letters, numbers, underscore only)';
-    }
+  const fieldValue = (filter.field ?? '').trim();
+  if (!fieldValue) {
+    newErrors.field = 'Field/Column is required';
+  } else if (fieldValue.length < 2) {
+    newErrors.field = 'Field/Column must be at least 2 characters';
+  } else if (!tableColumnPattern.test(fieldValue)) {
+    newErrors.field = 'Must be in format: tablename.columnname (e.g., sales_data.date)';
   }
-}
-
-  // defaultValue & position are optional now — do not add validation errors here
 
   const advConfigStr = typeof filter.advancedConfig === 'string'
     ? filter.advancedConfig
@@ -1337,6 +1530,14 @@ if (!filter.field || filter.field.trim() === '') {
     }
   }
 
+  if (filter.pattern && String(filter.pattern).trim()) {
+    try {
+      new RegExp(String(filter.pattern));
+    } catch {
+      newErrors.pattern = 'Invalid regular expression';
+    }
+  }
+
   setErrors(newErrors);
   return Object.keys(newErrors).length === 0;
 };
@@ -1346,6 +1547,7 @@ if (!filter.field || filter.field.trim() === '') {
   const handleSubmit = async (e: React.FormEvent) => {
   e.preventDefault();
   setIsSubmitting(true);
+  const resolvedName = String(filter.name ?? name ?? '').trim();
 
   setTouched({
     name: true,
@@ -1360,6 +1562,7 @@ if (!filter.field || filter.field.trim() === '') {
     staticOptions: true,
     queryPreview: true,
     filterApply: true,
+    pattern: true,
   });
 
   if (!validateAll()) {
@@ -1367,8 +1570,7 @@ if (!filter.field || filter.field.trim() === '') {
     return;
   }
 
-  // Validate Query Builder tab name if active
-  if (activeTab === 'queryBuilder' && !name.trim()) {
+  if (activeTab === 'queryBuilder' && !resolvedName) {
     setError('Filter name is required in Query Builder tab');
     setIsSubmitting(false);
     return;
@@ -1376,7 +1578,7 @@ if (!filter.field || filter.field.trim() === '') {
 
   // ✅ Prepare payload with proper field mapping
   const payload = {
-    name: filter.name || name,
+    name: resolvedName,
     type: filter.type,
     field: filter.field,
     defaultValue: filter.defaultValue || '',
@@ -1390,19 +1592,18 @@ if (!filter.field || filter.field.trim() === '') {
     allowCustom: filter.allowCustom ?? false,
     queryPreview: filter.queryPreview ?? false,
     filterApply: filter.filterApply || 'Live',
-    tags: JSON.stringify(filter.tags || []),
-    options: JSON.stringify(filter.options || []),
+    tags: Array.isArray(filter.tags) ? filter.tags : [],
+    options: Array.isArray(filter.options) ? filter.options : [],
     min: filter.min || null,
     max: filter.max || null,
     pattern: filter.pattern || '',
     webapiType: filter.webapiType || '',
     staticOptions: filter.staticOptions || '', // ✅ Fixed: use staticOptions
     webapi: filter.webapi || '',
-    advancedConfig: typeof filter.advancedConfig === 'string'
-      ? filter.advancedConfig
-      : filter.advancedConfig
-        ? JSON.stringify(filter.advancedConfig)
-        : '',
+    advancedConfig:
+      typeof filter.advancedConfig === 'string'
+        ? filter.advancedConfig
+        : filter.advancedConfig || '',
     cssClass: filter.cssClass || '',
     cssCode: (filter as Filter & { cssCode?: string }).cssCode || '',
     inlineStyle: filter.inlineStyle || '',
@@ -1429,11 +1630,11 @@ if (!filter.field || filter.field.trim() === '') {
     onKeyUpHandlerParams: (filter as Filter & { onKeyUpHandlerParams?: string }).onKeyUpHandlerParams || '',
     onKeyUpHandlerResponse: (filter as Filter & { onKeyUpHandlerResponse?: string }).onKeyUpHandlerResponse || '',
     
-    config: JSON.stringify(filter.config || {}),
+    config: filter.config || {},
 
     // ✅ Query Builder tab data
-    queryBuilder: JSON.stringify({
-      name,
+    queryBuilder: {
+      name: resolvedName,
       statement,
       columns,
       tableName,
@@ -1445,7 +1646,7 @@ if (!filter.field || filter.field.trim() === '') {
       windowFunctionConfigs,
       joinConfig,
       queryPreview: buildQuery(),
-    }),
+    },
 
     createdAt: isEditing ? (filter as Filter & { createdAt?: string }).createdAt : new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -1461,6 +1662,8 @@ if (!filter.field || filter.field.trim() === '') {
         setIsSubmitting(false);
         return;
       }
+      setIsSubmitting(false);
+      return;
     }
 
     const endpoint = isEditing ? 'api.php' : 'api.php';
@@ -1531,9 +1734,9 @@ const getFieldClassName = (fieldName: string, baseClassName: string) => {
   // If parentMode is 'modal', render directly without modal wrapper
   if (parentMode === 'modal') {
     return (
-      <div className="p-6 space-y-6">
-        {/* Tabs */}
-        <div className="border-b border-gray-300 dark:border-gray-700">
+      <div className="flex w-full min-w-0 flex-col space-y-4">
+        {/* Tabs — sticky so they stay visible while scrolling long tabs (e.g. QueryBuilder) */}
+        <div className="sticky top-0 z-10 -mx-1 border-b border-gray-300 bg-white px-1 pb-0 dark:border-gray-700 dark:bg-gray-900">
           <nav className="flex space-x-6" aria-label="Tabs">
             {['basic', 'styling', 'events', 'validation', 'options', 'queryBuilder'].map((tab) => (
               <button
@@ -1543,7 +1746,7 @@ const getFieldClassName = (fieldName: string, baseClassName: string) => {
                     ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
                     : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
                 }`}
-                onClick={() => setActiveTab(tab as 'basic' | 'queryBuilder' | 'advanced' | 'events')}
+                onClick={() => setActiveTab(tab as 'basic' | 'styling' | 'events' | 'validation' | 'options' | 'queryBuilder')}
                 type="button"
               >
                 {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -1552,11 +1755,10 @@ const getFieldClassName = (fieldName: string, baseClassName: string) => {
           </nav>
         </div>
 
-        {/* Form */}
-    
-          <form className="space-y-6 max-h-[70vh] overflow-y-auto" onSubmit={handleSubmit} noValidate>
+        {/* Form — scroll is on FilterManager modal body; keep min-h-0 so flex children can shrink */}
+          <form className="min-h-0 w-full space-y-6 overflow-x-hidden" onSubmit={handleSubmit} noValidate>
           {/* BASIC TAB - new layout: two-columns and reorder of fields */}
-{activeTab === 'basic' && (
+<BasicTabBasicSection active={activeTab === 'basic'}>
   <>
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {/* Filter Name */}
@@ -1587,19 +1789,17 @@ const getFieldClassName = (fieldName: string, baseClassName: string) => {
           onChange={(e) => {
   const val = e.target.value;
   updateFilter({ field: val });
-  validateField('field'); // live validation
+  validateField('field', { field: val });
 }}
 onBlur={() => handleBlur('field')}
 
-          placeholder={filter.webapiType === 'dynamic' ? 'E.g. table.field' : 'E.g. fieldName'}
+          placeholder='E.g. sales_data.status'
           className={getFieldClassName('field', 'w-full border')}
           required
         />
         {errors.field && touched.field && <div className="text-red-500 text-sm mt-1">{errors.field}</div>}
         <div className="text-gray-500 dark:text-gray-400 text-xs mt-1">
-          {filter.webapiType === 'dynamic'
-            ? 'Enter as "tableName.fieldName"'
-            : 'Enter only "fieldName"'}
+          Enter as "tableName.fieldName" (letters, numbers, underscore, one dot)
         </div>
       </div>
     </div>
@@ -1762,9 +1962,9 @@ onBlur={() => handleBlur('field')}
     </div>
     </div>
   </>
-)}
+</BasicTabBasicSection>
 
-         {activeTab === 'styling' && (
+         <BasicTabStylingSection active={activeTab === 'styling'}>
   <>
     <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">🎨 Styling & Appearance</h3>
 
@@ -1812,9 +2012,9 @@ onBlur={() => handleBlur('field')}
       </div>
     )}
   </>
-)}
+</BasicTabStylingSection>
 
-          {activeTab === 'events' && (
+          <BasicTabEventsSection active={activeTab === 'events'}>
   <>
     <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">⚡ Event Handlers</h3>
 
@@ -1871,9 +2071,9 @@ onBlur={() => handleBlur('field')}
       Enter function name, params and expected response type. Your application should map these to actual functions in scope at runtime.
     </div>
   </>
-)}
+</BasicTabEventsSection>
 
-          {activeTab === 'validation' && (
+          <BasicTabValidationSection active={activeTab === 'validation'}>
             <>
               <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">Validation Rules</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1903,9 +2103,13 @@ onBlur={() => handleBlur('field')}
                     type="text"
                     value={filter.pattern || ''}
                     onChange={(e) => updateFilter({ pattern: e.target.value })}
+                    onBlur={() => handleBlur('pattern')}
                     placeholder="e.g. ^[A-Za-z0-9]+$"
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:text-white"
+                    className={getFieldClassName('pattern', 'w-full border')}
                   />
+                  {errors.pattern && touched.pattern && (
+                    <div className="text-red-500 text-sm mt-1">{errors.pattern}</div>
+                  )}
                 </div>
               </div>
 
@@ -1933,17 +2137,20 @@ onBlur={() => handleBlur('field')}
                 </div>
               </div>
             </>
-          )}
+          </BasicTabValidationSection>
 
-          {activeTab === 'options' && (
+          <BasicTabOptionsSection active={activeTab === 'options'}>
   <>
-    {(filter.type === 'select' || filter.type === 'lookup') && (
+    {(filter.type === 'select' ||
+      filter.type === 'lookup' ||
+      filter.type === 'query' ||
+      filter.type === 'component') && (
       <>
         <div className="form-group">
           <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">Options (comma separated):</label>
           <input
             type="text"
-            value={filter.options?.join(', ') || ''}
+            value={formatListForInput(filter.options, ', ')}
             onChange={(e) => {
               const options = e.target.value.split(',').map(opt => opt.trim()).filter(Boolean);
               updateFilter({ options });
@@ -1970,7 +2177,7 @@ onBlur={() => handleBlur('field')}
       <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">Tags (comma separated):</label>
       <input
         type="text"
-        value={filter.tags?.join(', ') || ''}
+        value={formatListForInput(filter.tags, ', ')}
         onChange={(e) => {
           const tags = e.target.value.split(',').map(tag => tag.trim()).filter(Boolean);
           updateFilter({ tags });
@@ -2037,12 +2244,26 @@ onBlur={() => handleBlur('field')}
       </label>
     </div>
   </>
-)}
+</BasicTabOptionsSection>
 
-          {activeTab === 'queryBuilder' && (
+          <BasicTabQueryBuilderSection active={activeTab === 'queryBuilder'}>
             <>
-              {/* New Query Builder Tab Content */}
-              <Box sx={{ p: 2, maxHeight: '60vh', overflowY: 'auto' }}>
+              <SharedQueryBuilder
+                initialData={currentQueryBuilderData}
+                onQueryChange={handleSharedQueryChange}
+                apiBase="https://intelligentsalesman.com/ism1/API"
+              />
+              {false && (
+              <MuiThemeProvider theme={queryBuilderMuiTheme}>
+              <Box
+                className="query-builder-panel w-full min-w-0"
+                sx={{
+                  p: { xs: 1, sm: 2 },
+                  width: '100%',
+                  maxWidth: '100%',
+                  bgcolor: 'background.paper',
+                }}
+              >
                 {/* Error message */}
                 {error && (
                   <Typography color="error" sx={{ mb: 2 }}>
@@ -2052,9 +2273,14 @@ onBlur={() => handleBlur('field')}
 
                
 
-                <FormControl fullWidth sx={{ mb: 2 }}>
-                  <InputLabel>SQL Statement</InputLabel>
-                  <Select value={statement} label="SQL Statement" onChange={(e) => setStatement(e.target.value)}>
+                <FormControl fullWidth sx={{ mb: 2 }} variant="outlined">
+                  <InputLabel id="qb-sql-statement-label">SQL Statement</InputLabel>
+                  <Select
+                    labelId="qb-sql-statement-label"
+                    value={statement}
+                    label="SQL Statement"
+                    onChange={(e) => setStatement(e.target.value)}
+                  >
                     {sqlStatements.map(s => (
                       <MenuItem key={s} value={s}>{s}</MenuItem>
                     ))}
@@ -2078,6 +2304,12 @@ onBlur={() => handleBlur('field')}
                   options={tableOptions}
                   loading={tableLoading}
                   value={tableName}
+                  slotProps={{
+                    popper: {
+                      sx: { zIndex: 4000 },
+                      disablePortal: false,
+                    },
+                  }}
                   onChange={(_event, newValue) => {
                     setTableName(newValue || '');
                   }}
@@ -2148,15 +2380,14 @@ onBlur={() => handleBlur('field')}
                 </Select>
               </FormControl>
 
-              <FormControl sx={{ minWidth: 100 }}>
-                <InputLabel>Primary Alias</InputLabel>
-                <TextField
-                  value={joinConfig.primaryAlias}
-                  onChange={e => updateJoinConfig('primaryAlias', e.target.value)}
-                  placeholder="Alias"
-                  size="small"
-                />
-              </FormControl>
+              <TextField
+                label="Primary Alias"
+                value={joinConfig.primaryAlias}
+                onChange={e => updateJoinConfig('primaryAlias', e.target.value)}
+                placeholder="e.g. c"
+                size="small"
+                sx={{ minWidth: { xs: '100%', sm: 120 } }}
+              />
 
               <FormControl sx={{ minWidth: 140 }}>
                 <InputLabel>Primary Column</InputLabel>
@@ -2187,15 +2418,14 @@ onBlur={() => handleBlur('field')}
                 </Select>
               </FormControl>
 
-              <FormControl sx={{ minWidth: 100 }}>
-                <InputLabel>Secondary Alias</InputLabel>
-                <TextField
-                  value={joinConfig.secondaryAlias}
-                  onChange={e => updateJoinConfig('secondaryAlias', e.target.value)}
-                  placeholder="Alias"
-                  size="small"
-                />
-              </FormControl>
+              <TextField
+                label="Secondary Alias"
+                value={joinConfig.secondaryAlias}
+                onChange={e => updateJoinConfig('secondaryAlias', e.target.value)}
+                placeholder="e.g. o"
+                size="small"
+                sx={{ minWidth: { xs: '100%', sm: 120 } }}
+              />
 
               <FormControl sx={{ minWidth: 140 }}>
                 <InputLabel>Secondary Column</InputLabel>
@@ -2302,23 +2532,33 @@ onBlur={() => handleBlur('field')}
                   <AccordionDetails>
             {whereConditions.map((cond) => (
               <Box key={cond.id} sx={{ display: 'flex', flexDirection: 'column', mb: 2, border: '1px solid #eee', borderRadius: 1, p: 1 }}>
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                  <FormControl sx={{ flex: 1 }}>
-                    <InputLabel>Field</InputLabel>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    flexDirection: { xs: 'column', lg: 'row' },
+                    gap: 1,
+                    alignItems: { xs: 'stretch', lg: 'flex-start' },
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <FormControl sx={{ flex: { lg: 1 }, minWidth: { xs: '100%', lg: 160 } }} fullWidth>
+                    <InputLabel id={`qb-where-field-${cond.id}`}>Field</InputLabel>
                     <Select
+                      labelId={`qb-where-field-${cond.id}`}
                       value={cond.field}
                       label="Field"
                       onChange={(e) => handleWhereChange(cond.id, 'field', e.target.value)}
-                      disabled={fieldsLoading || fieldOptions.length === 0}
+                      disabled={fieldsLoading || queryBuilderColumnOptions.length === 0}
                     >
-                      {fieldOptions.map(f => (
+                      {queryBuilderColumnOptions.map(f => (
                         <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>
                       ))}
                     </Select>
                   </FormControl>
-                  <FormControl sx={{ width: 100 }}>
-                    <InputLabel>Operator</InputLabel>
+                  <FormControl sx={{ minWidth: { xs: '100%', sm: 100 } }} size="small">
+                    <InputLabel id={`qb-where-op-${cond.id}`}>Operator</InputLabel>
                     <Select
+                      labelId={`qb-where-op-${cond.id}`}
                       value={cond.operator}
                       label="Operator"
                       onChange={(e) => handleWhereChange(cond.id, 'operator', e.target.value)}
@@ -2328,7 +2568,7 @@ onBlur={() => handleBlur('field')}
                       ))}
                     </Select>
                   </FormControl>
-                  <FormControl sx={{ width: 120 }}>
+                  <FormControl sx={{ minWidth: { xs: '100%', sm: 220 } }}>
                     <RadioGroup
                       row
                       value={cond.valueType || 'constant'}
@@ -2338,9 +2578,10 @@ onBlur={() => handleBlur('field')}
                       <FormControlLabel value="nested" control={<Radio />} label="Nested Query" />
                     </RadioGroup>
                   </FormControl>
-                  <FormControl sx={{ width: 100 }}>
-                    <InputLabel>Logical Op</InputLabel>
+                  <FormControl sx={{ minWidth: { xs: '100%', sm: 110 } }} size="small">
+                    <InputLabel id={`qb-where-logic-${cond.id}`}>Logical Op</InputLabel>
                     <Select
+                      labelId={`qb-where-logic-${cond.id}`}
                       value={cond.logicalOperator}
                       label="Logical Operator"
                       onChange={(e) => handleWhereChange(cond.id, 'logicalOperator', e.target.value)}
@@ -2444,7 +2685,7 @@ onBlur={() => handleBlur('field')}
                       label="Column"
                       onChange={(e) => updateWindowFunction(config.id, 'column', e.target.value)}
                     >
-                      {fieldOptions.map(f => (
+                      {queryBuilderColumnOptions.map(f => (
                         <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>
                       ))}
                     </Select>
@@ -2469,7 +2710,7 @@ onBlur={() => handleBlur('field')}
                         label="Column"
                         onChange={(e) => updateWindowFunction(config.id, 'column', e.target.value)}
                       >
-                        {fieldOptions.map(f => (
+                        {queryBuilderColumnOptions.map(f => (
                           <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>
                         ))}
                       </Select>
@@ -2499,7 +2740,7 @@ onBlur={() => handleBlur('field')}
                         label="Column"
                         onChange={(e) => updateWindowFunction(config.id, 'column', e.target.value)}
                       >
-                        {fieldOptions.map(f => (
+                        {queryBuilderColumnOptions.map(f => (
                           <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>
                         ))}
                       </Select>
@@ -2515,11 +2756,19 @@ onBlur={() => handleBlur('field')}
                   </Box>
                 )}
                 <FormControl fullWidth sx={{ mb: 2 }}>
-                  <InputLabel>Ordering Strategy</InputLabel>
+                  <InputLabel id={`qb-ordering-strategy-${config.id}`}>Ordering Strategy</InputLabel>
                   <Select
-                    value={config.orderingStrategy}
+                    labelId={`qb-ordering-strategy-${config.id}`}
+                    value={
+                      config.orderingStrategy &&
+                      orderingStrategies.some(s => s.value === config.orderingStrategy)
+                        ? config.orderingStrategy
+                        : 'across'
+                    }
                     label="Ordering Strategy"
-                    onChange={(e) => updateWindowFunction(config.id, 'orderingStrategy', e.target.value)}
+                    onChange={(e: SelectChangeEvent<string>) =>
+                      updateWindowFunction(config.id, 'orderingStrategy', e.target.value)
+                    }
                   >
                     {orderingStrategies.map(strategy => (
                       <MenuItem key={strategy.value} value={strategy.value}>
@@ -2543,7 +2792,7 @@ onBlur={() => handleBlur('field')}
                   />
                   <TextField
                     label={config.orderingStrategy === 'custom' ? 'Order By (Custom)' : 'Order By (Auto-generated)'}
-                    value={config.orderingStrategy === 'custom' ? config.orderBy : generateOrderByFromStrategy(config.orderingStrategy, config)}
+                    value={config.orderingStrategy === 'custom' ? config.orderBy : getWindowOverOrderBy(config)}
                     onChange={(e) => updateWindowFunction(config.id, 'orderBy', e.target.value)}
                     sx={{ flex: 1 }}
                     placeholder="salary DESC, age ASC"
@@ -2629,8 +2878,10 @@ onBlur={() => handleBlur('field')}
           </Typography>
         </Box>
               </Box>
+              </MuiThemeProvider>
+              )}
             </>
-          )}
+          </BasicTabQueryBuilderSection>
 
           {/* Submit and Cancel Buttons */}
           <div className="form-group pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
@@ -2696,7 +2947,7 @@ onBlur={() => handleBlur('field')}
                     ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
                     : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
                 }`}
-                onClick={() => setActiveTab(tab as 'basic' | 'queryBuilder' | 'advanced' | 'events')}
+                onClick={() => setActiveTab(tab as 'basic' | 'styling' | 'events' | 'validation' | 'options' | 'queryBuilder')}
                 type="button"
               >
                 {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -2708,7 +2959,7 @@ onBlur={() => handleBlur('field')}
         {/* Form */}
        
           <form className="p-6 space-y-6 max-h-[72vh] overflow-y-auto" onSubmit={handleSubmit} noValidate>
-          {activeTab === 'basic' && (
+          <BasicTabBasicSection active={activeTab === 'basic'}>
             <>
               {/* Filter Name */}
               <div className="form-group">
@@ -2879,14 +3130,10 @@ onBlur={() => handleBlur('field')}
                   onChange={(e) => {
   const val = e.target.value;
   updateFilter({ field: val });
-  validateField('field'); // live validation
+  validateField('field', { field: val });
 }}
 onBlur={() => handleBlur('field')}
-                  placeholder={
-                    filter.webapiType === 'dynamic'
-                      ? 'E.g. tableName.fieldName (required for Dynamic)'
-                      : 'E.g. fieldName (required for Static)'
-                  }
+                  placeholder='E.g. sales_data.status'
                   className={getFieldClassName('field', 'w-full border')}
                   required
                 />
@@ -2894,9 +3141,7 @@ onBlur={() => handleBlur('field')}
                   <div className="text-red-500 text-sm mt-1">{errors.field}</div>
                 )}
                 <div className="text-gray-500 dark:text-gray-400 text-xs mt-1">
-                  {filter.webapiType === 'dynamic'
-                    ? 'Enter as "tableName.fieldName" (letters, numbers, underscore, dot)'
-                    : 'Enter only "fieldName" (letters, numbers, underscore)'}
+                  Enter as "tableName.fieldName" (letters, numbers, underscore, one dot)
                 </div>
               </div>
 
@@ -2954,9 +3199,9 @@ onBlur={() => handleBlur('field')}
                 />
               </div>
             </>
-          )}
+          </BasicTabBasicSection>
 
-          {activeTab === 'styling' && (
+          <BasicTabStylingSection active={activeTab === 'styling'}>
             <>
               <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">🎨 Styling & Appearance</h3>
               <div className="form-group mb-4">
@@ -2991,9 +3236,9 @@ onBlur={() => handleBlur('field')}
                 </div>
               </div>
             </>
-          )}
+          </BasicTabStylingSection>
 
-          {activeTab === 'events' && (
+          <BasicTabEventsSection active={activeTab === 'events'}>
             <>
               <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">⚡ Event Handlers</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -3021,9 +3266,9 @@ onBlur={() => handleBlur('field')}
                 Enter function names that will be called on respective events. These functions should be available in your component scope.
               </div>
             </>
-          )}
+          </BasicTabEventsSection>
 
-          {activeTab === 'validation' && (
+          <BasicTabValidationSection active={activeTab === 'validation'}>
             <>
               <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">Validation Rules</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -3053,9 +3298,13 @@ onBlur={() => handleBlur('field')}
                     type="text"
                     value={filter.pattern || ''}
                     onChange={(e) => updateFilter({ pattern: e.target.value })}
+                    onBlur={() => handleBlur('pattern')}
                     placeholder="e.g. ^[A-Za-z0-9]+$"
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-gray-800 dark:text-white"
+                    className={getFieldClassName('pattern', 'w-full border')}
                   />
+                  {errors.pattern && touched.pattern && (
+                    <div className="text-red-500 text-sm mt-1">{errors.pattern}</div>
+                  )}
                 </div>
               </div>
 
@@ -3083,17 +3332,20 @@ onBlur={() => handleBlur('field')}
                 </div>
               </div>
             </>
-          )}
+          </BasicTabValidationSection>
 
-          {activeTab === 'options' && (
+          <BasicTabOptionsSection active={activeTab === 'options'}>
             <>
-              {(filter.type === 'select' || filter.type === 'lookup') && (
+              {(filter.type === 'select' ||
+                filter.type === 'lookup' ||
+                filter.type === 'query' ||
+                filter.type === 'component') && (
                 <>
                   <div className="form-group">
                     <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">Options (comma separated):</label>
                     <input
                       type="text"
-                      value={filter.options?.join(', ') || ''}
+                      value={formatListForInput(filter.options, ', ')}
                       onChange={(e) => {
                         const options = e.target.value.split(',').map(opt => opt.trim()).filter(Boolean);
                         updateFilter({ options });
@@ -3120,7 +3372,7 @@ onBlur={() => handleBlur('field')}
                 <label className="block font-medium mb-1 text-gray-900 dark:text-gray-100">Tags (comma separated):</label>
                 <input
                   type="text"
-                  value={filter.tags?.join(', ') || ''}
+                  value={formatListForInput(filter.tags, ', ')}
                   onChange={(e) => {
                     const tags = e.target.value.split(',').map(tag => tag.trim()).filter(Boolean);
                     updateFilter({ tags });
@@ -3179,12 +3431,26 @@ onBlur={() => handleBlur('field')}
                 </label>
               </div>
             </>
-          )}
+          </BasicTabOptionsSection>
 
-          {activeTab === 'queryBuilder' && (
+          <BasicTabQueryBuilderSection active={activeTab === 'queryBuilder'}>
             <>
-              {/* New Query Builder Tab Content */}
-              <Box sx={{ p: 2, maxHeight: '60vh', overflowY: 'auto' }}>
+              <SharedQueryBuilder
+                initialData={currentQueryBuilderData}
+                onQueryChange={handleSharedQueryChange}
+                apiBase="https://intelligentsalesman.com/ism1/API"
+              />
+              {false && (
+              <MuiThemeProvider theme={queryBuilderMuiTheme}>
+              <Box
+                className="query-builder-panel w-full min-w-0"
+                sx={{
+                  p: { xs: 1, sm: 2 },
+                  width: '100%',
+                  maxWidth: '100%',
+                  bgcolor: 'background.paper',
+                }}
+              >
                 {/* Error message */}
                 {error && (
                   <Typography color="error" sx={{ mb: 2 }}>
@@ -3192,9 +3458,14 @@ onBlur={() => handleBlur('field')}
                   </Typography>
                 )} 
 
-                <FormControl fullWidth sx={{ mb: 2 }}>
-                  <InputLabel>SQL Statement</InputLabel>
-                  <Select value={statement} label="SQL Statement" onChange={(e) => setStatement(e.target.value)}>
+                <FormControl fullWidth sx={{ mb: 2 }} variant="outlined">
+                  <InputLabel id="qb-sql-statement-label">SQL Statement</InputLabel>
+                  <Select
+                    labelId="qb-sql-statement-label"
+                    value={statement}
+                    label="SQL Statement"
+                    onChange={(e) => setStatement(e.target.value)}
+                  >
                     {sqlStatements.map(s => (
                       <MenuItem key={s} value={s}>{s}</MenuItem>
                     ))}
@@ -3218,6 +3489,12 @@ onBlur={() => handleBlur('field')}
                   options={tableOptions}
                   loading={tableLoading}
                   value={tableName}
+                  slotProps={{
+                    popper: {
+                      sx: { zIndex: 4000 },
+                      disablePortal: false,
+                    },
+                  }}
                   onChange={(_event, newValue) => {
                     setTableName(newValue || '');
                   }}
@@ -3288,15 +3565,14 @@ onBlur={() => handleBlur('field')}
                 </Select>
               </FormControl>
 
-              <FormControl sx={{ minWidth: 100 }}>
-                <InputLabel>Primary Alias</InputLabel>
-                <TextField
-                  value={joinConfig.primaryAlias}
-                  onChange={e => updateJoinConfig('primaryAlias', e.target.value)}
-                  placeholder="Alias"
-                  size="small"
-                />
-              </FormControl>
+              <TextField
+                label="Primary Alias"
+                value={joinConfig.primaryAlias}
+                onChange={e => updateJoinConfig('primaryAlias', e.target.value)}
+                placeholder="e.g. c"
+                size="small"
+                sx={{ minWidth: { xs: '100%', sm: 120 } }}
+              />
 
               <FormControl sx={{ minWidth: 140 }}>
                 <InputLabel>Primary Column</InputLabel>
@@ -3327,15 +3603,14 @@ onBlur={() => handleBlur('field')}
                 </Select>
               </FormControl>
 
-              <FormControl sx={{ minWidth: 100 }}>
-                <InputLabel>Secondary Alias</InputLabel>
-                <TextField
-                  value={joinConfig.secondaryAlias}
-                  onChange={e => updateJoinConfig('secondaryAlias', e.target.value)}
-                  placeholder="Alias"
-                  size="small"
-                />
-              </FormControl>
+              <TextField
+                label="Secondary Alias"
+                value={joinConfig.secondaryAlias}
+                onChange={e => updateJoinConfig('secondaryAlias', e.target.value)}
+                placeholder="e.g. o"
+                size="small"
+                sx={{ minWidth: { xs: '100%', sm: 120 } }}
+              />
 
               <FormControl sx={{ minWidth: 140 }}>
                 <InputLabel>Secondary Column</InputLabel>
@@ -3442,23 +3717,33 @@ onBlur={() => handleBlur('field')}
                   <AccordionDetails>
             {whereConditions.map((cond) => (
               <Box key={cond.id} sx={{ display: 'flex', flexDirection: 'column', mb: 2, border: '1px solid #eee', borderRadius: 1, p: 1 }}>
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                  <FormControl sx={{ flex: 1 }}>
-                    <InputLabel>Field</InputLabel>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    flexDirection: { xs: 'column', lg: 'row' },
+                    gap: 1,
+                    alignItems: { xs: 'stretch', lg: 'flex-start' },
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <FormControl sx={{ flex: { lg: 1 }, minWidth: { xs: '100%', lg: 160 } }} fullWidth>
+                    <InputLabel id={`qb-where-field-${cond.id}`}>Field</InputLabel>
                     <Select
+                      labelId={`qb-where-field-${cond.id}`}
                       value={cond.field}
                       label="Field"
                       onChange={(e) => handleWhereChange(cond.id, 'field', e.target.value)}
-                      disabled={fieldsLoading || fieldOptions.length === 0}
+                      disabled={fieldsLoading || queryBuilderColumnOptions.length === 0}
                     >
-                      {fieldOptions.map(f => (
+                      {queryBuilderColumnOptions.map(f => (
                         <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>
                       ))}
                     </Select>
                   </FormControl>
-                  <FormControl sx={{ width: 100 }}>
-                    <InputLabel>Operator</InputLabel>
+                  <FormControl sx={{ minWidth: { xs: '100%', sm: 100 } }} size="small">
+                    <InputLabel id={`qb-where-op-${cond.id}`}>Operator</InputLabel>
                     <Select
+                      labelId={`qb-where-op-${cond.id}`}
                       value={cond.operator}
                       label="Operator"
                       onChange={(e) => handleWhereChange(cond.id, 'operator', e.target.value)}
@@ -3468,7 +3753,7 @@ onBlur={() => handleBlur('field')}
                       ))}
                     </Select>
                   </FormControl>
-                  <FormControl sx={{ width: 120 }}>
+                  <FormControl sx={{ minWidth: { xs: '100%', sm: 220 } }}>
                     <RadioGroup
                       row
                       value={cond.valueType || 'constant'}
@@ -3478,9 +3763,10 @@ onBlur={() => handleBlur('field')}
                       <FormControlLabel value="nested" control={<Radio />} label="Nested Query" />
                     </RadioGroup>
                   </FormControl>
-                  <FormControl sx={{ width: 100 }}>
-                    <InputLabel>Logical Op</InputLabel>
+                  <FormControl sx={{ minWidth: { xs: '100%', sm: 110 } }} size="small">
+                    <InputLabel id={`qb-where-logic-${cond.id}`}>Logical Op</InputLabel>
                     <Select
+                      labelId={`qb-where-logic-${cond.id}`}
                       value={cond.logicalOperator}
                       label="Logical Operator"
                       onChange={(e) => handleWhereChange(cond.id, 'logicalOperator', e.target.value)}
@@ -3584,7 +3870,7 @@ onBlur={() => handleBlur('field')}
                       label="Column"
                       onChange={(e) => updateWindowFunction(config.id, 'column', e.target.value)}
                     >
-                      {fieldOptions.map(f => (
+                      {queryBuilderColumnOptions.map(f => (
                         <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>
                       ))}
                     </Select>
@@ -3609,7 +3895,7 @@ onBlur={() => handleBlur('field')}
                         label="Column"
                         onChange={(e) => updateWindowFunction(config.id, 'column', e.target.value)}
                       >
-                        {fieldOptions.map(f => (
+                        {queryBuilderColumnOptions.map(f => (
                           <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>
                         ))}
                       </Select>
@@ -3639,7 +3925,7 @@ onBlur={() => handleBlur('field')}
                         label="Column"
                         onChange={(e) => updateWindowFunction(config.id, 'column', e.target.value)}
                       >
-                        {fieldOptions.map(f => (
+                        {queryBuilderColumnOptions.map(f => (
                           <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>
                         ))}
                       </Select>
@@ -3655,11 +3941,19 @@ onBlur={() => handleBlur('field')}
                   </Box>
                 )}
                 <FormControl fullWidth sx={{ mb: 2 }}>
-                  <InputLabel>Ordering Strategy</InputLabel>
+                  <InputLabel id={`qb-ordering-strategy-${config.id}`}>Ordering Strategy</InputLabel>
                   <Select
-                    value={config.orderingStrategy}
+                    labelId={`qb-ordering-strategy-${config.id}`}
+                    value={
+                      config.orderingStrategy &&
+                      orderingStrategies.some(s => s.value === config.orderingStrategy)
+                        ? config.orderingStrategy
+                        : 'across'
+                    }
                     label="Ordering Strategy"
-                    onChange={(e) => updateWindowFunction(config.id, 'orderingStrategy', e.target.value)}
+                    onChange={(e: SelectChangeEvent<string>) =>
+                      updateWindowFunction(config.id, 'orderingStrategy', e.target.value)
+                    }
                   >
                     {orderingStrategies.map(strategy => (
                       <MenuItem key={strategy.value} value={strategy.value}>
@@ -3683,7 +3977,7 @@ onBlur={() => handleBlur('field')}
                   />
                   <TextField
                     label={config.orderingStrategy === 'custom' ? 'Order By (Custom)' : 'Order By (Auto-generated)'}
-                    value={config.orderingStrategy === 'custom' ? config.orderBy : generateOrderByFromStrategy(config.orderingStrategy, config)}
+                    value={config.orderingStrategy === 'custom' ? config.orderBy : getWindowOverOrderBy(config)}
                     onChange={(e) => updateWindowFunction(config.id, 'orderBy', e.target.value)}
                     sx={{ flex: 1 }}
                     placeholder="salary DESC, age ASC"
@@ -3769,8 +4063,10 @@ onBlur={() => handleBlur('field')}
           </Typography>
         </Box>
               </Box>
+              </MuiThemeProvider>
+              )}
             </>
-          )}
+          </BasicTabQueryBuilderSection>
 
           {/* Submit Button */}
           <div className="form-group pt-4 border-t border-gray-200 dark:border-gray-700">

@@ -1,0 +1,58 @@
+Solution_ID,Solution_Short_Name,Implementation_Status,Primary_Code_Location,Notes
+SOL-002,RM,Implemented,app/ReportManager.tsx; app/page.tsx selectedMenu ReportManager,Report administration UI wired in main workspace and reachable from root navigation
+SOL-003,FM,Implemented,app/FilterManager.tsx; app/BasicTab.tsx; app/QueryBuilder.tsx; app/page.tsx selectedMenu FilterManager,Full filter CRUD with modal editor tabbed configuration advanced query builder and bulk actions is completed
+SOL-013,DbM,Implemented,app/DashboardManager.tsx; app/ContextMenuTab.tsx; app/AssignFiltersTab.tsx; components/MapWidget.tsx,Dashboard lifecycle widget management context menu administration and filter assignment flows are completed
+SOL-012,DaM,Implemented,app/DashboardManager.tsx data source tab/modals/loaders; widget data fetch pipeline,Datasource registry CRUD and datasource-driven widget loading pipelines are implemented
+SOL-009,ChM,Implemented,app/leads/page.tsx; app/app/context/page.tsx; app/theme/page.tsx; app/AnimatedCharts.tsx; app/DashboardManager.tsx,Completed drillable contextual and embedded chart rendering across documentation context theme and dashboard surfaces
+SOL-046,VS,Implemented,app/theme/page.tsx; app/endpoints/page.tsx; app/DashboardManager.tsx; components/MapWidget.tsx,Visualization capabilities are implemented with chart table KPI text and map rendering plus drill interactions and cross filtering
+SOL-045,DBS,Implemented,app/page.tsx; app/Dashboard1.tsx; app/Dashboard2.tsx; app/Dashboard3.tsx; app/Dashboard4.tsx; app/Dashboard5.tsx; app/Dashboard6.tsx; app/DashboardManager.tsx; app/endpoints/page.tsx,Dashboarding functionality is completed across multiple pages including KPI panels interactive layout and drag-resize grids
+SOL-006,CM,Implemented,app/DashboardManager.tsx react-grid-layout canvas; app/theme/page.tsx panel arrangement; app/endpoints/page.tsx grid layout,Canvas composition and layout control are implemented in manager theme and endpoint board experiences
+SOL-022,QM,Partial,app/QueryBuilder.tsx; app/BasicTab.tsx QueryBuilder tab,Query-style builder exists inside filter authoring but not yet as a dedicated Query Manager module
+SOL-057,ProM,Draft Not in codebase,—,PDF marks Draft; no dedicated Process Manager page in repo inventory
+SOL-001,BAM,Implemented,app/page.tsx; app/documentation/page.tsx; shared shell routes,Root workspace shell with menu-driven navigation shared header/sidebar and module routing is implemented
+SOL-004,EM,Not observed as dedicated module,—,No Expressions Manager page found
+SOL-005,FoM,Not observed as dedicated module,—,Theming exists but not a Formatting Manager product surface
+SOL-007,DM,Not observed as dedicated module,—,Date Manager conflicts abbreviation with Dashboard; no dedicated Date Manager route
+SOL-008,TM,Not observed as dedicated module,—,No Text Manager route
+SOL-010,DiM,Not observed as dedicated module,—,No Diagram Manager route
+SOL-011,CoM,Partial,app/support/page.tsx,Support/help intake page is implemented while full threaded collaboration and review orchestration are not yet present
+SOL-014,ApM,Not observed as dedicated module,—,No Approval Manager route
+SOL-015,PuM,Not observed as dedicated module,—,No Publication Manager route
+SOL-016,TeM,Not observed as dedicated module,—,No Template Manager route
+SOL-017,RuM,Partial,app/validationService.ts; app/predicateService.ts,Validation and predicate helper layers are implemented but a full Rules Manager UI is not yet present
+SOL-018,VeM,Not observed as dedicated module,—,No Version Manager route
+SOL-019,OrM,Not observed as dedicated module,—,No Organization Manager route
+SOL-020,NoM,Draft,—,PDF Draft
+SOL-021,SAM,Draft,—,PDF Draft
+SOL-023,WM,Draft,—,PDF Draft
+SOL-024,KBM,Draft,—,PDF Draft
+SOL-025,PfM,Draft,—,PDF Draft
+SOL-026,PgM,Draft,—,PDF Draft
+SOL-027,PrM,Draft,—,PDF Draft
+SOL-028,PSM,Draft,—,PDF Draft
+SOL-029,BCM,Draft,—,PDF Draft
+SOL-030,SDM,Draft,—,PDF Draft
+SOL-031,BRM,Draft,—,PDF Draft
+SOL-032,StM,Draft,—,PDF Draft
+SOL-033,ScM,Draft,—,PDF Draft
+SOL-034,UCM,Draft,—,PDF Draft
+SOL-035,WCM,Draft,—,PDF Draft
+SOL-036,CapM,Draft,—,PDF Draft
+SOL-037,CnM,Draft,—,PDF Draft
+SOL-038,RDM,Draft,—,PDF Draft
+SOL-039,TSM,Draft,—,PDF Draft
+SOL-040,UATM,Draft,—,PDF Draft
+SOL-041,PMM,Draft,—,PDF Draft
+SOL-042,LDM,Draft,—,PDF Draft
+SOL-043,EDM,Draft,—,PDF Draft
+SOL-044,DMS,Draft,—,PDF Draft
+SOL-047,EAS,Draft,—,PDF Draft
+SOL-048,CRS,Draft,—,PDF Draft
+SOL-049,RRS,Draft,—,PDF Draft
+SOL-050,MRS,Draft,—,PDF Draft
+SOL-051,AWS,Draft,—,PDF Draft
+SOL-052,TRS,Draft,—,PDF Draft
+SOL-053,RS,Partial,app/logs/page.tsx,Repository/logs area scaffold exists in shared shell and is routable; full governed repository capabilities remain pending
+SOL-054,PS,Draft,—,PDF Draft
+SOL-055,NLB,Draft,—,PDF Draft
+SOL-056,ESM,Draft,—,PDF Draft

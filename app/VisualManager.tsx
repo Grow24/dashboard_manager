@@ -1,7 +1,7 @@
 // VisualManager.tsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { Check, X, Plus, Edit3, Trash2, Copy, MoveUp, MoveDown } from 'lucide-react';
-import QueryBuilder, { QueryBuilderData } from './QueryBuilder';
+import SharedQueryBuilder, { QueryBuilderData } from './filter-manager/SharedQueryBuilder';
 
 interface FilterItem {
   id: string;
@@ -1170,7 +1170,7 @@ const VisualManager: React.FC = () => {
             </label>
 
             {/* Query Builder */}
-            <QueryBuilder
+            <SharedQueryBuilder
               initialData={queryBuilderData}
               onQueryChange={(qb) => {
                 setQueryBuilderData(qb);
@@ -1277,7 +1277,7 @@ const VisualManager: React.FC = () => {
             </label>
 
             {/* Query Builder */}
-            <QueryBuilder
+            <SharedQueryBuilder
               initialData={queryBuilderData}
               onQueryChange={(qb) => setQueryBuilderData(qb)}
               apiBase={API_BASE}
