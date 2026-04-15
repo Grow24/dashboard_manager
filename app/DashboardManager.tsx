@@ -53,6 +53,7 @@ interface Dashboard {
 interface Widget {
   id?: number;
   dashboard_id: number;
+  tabname?: string | null;
   title?: string;
   visual_type: VisualType;
   chart_type?: ChartType;
@@ -248,6 +249,20 @@ const DashboardCard: React.FC<{
         <h3 className="font-semibold text-lg text-blue-900">{dashboard.name}</h3>
         {dashboard.description && (
           <p className="text-sm text-gray-600 mt-1">{dashboard.description}</p>
+        )}
+        {(dashboard.page_name || dashboard.tab_name) && (
+          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+            {dashboard.page_name && (
+              <span className="px-2 py-1 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                Page: {dashboard.page_name}
+              </span>
+            )}
+            {dashboard.tab_name && (
+              <span className="px-2 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                Tab: {dashboard.tab_name}
+              </span>
+            )}
+          </div>
         )}
       </div>
 
@@ -1226,6 +1241,9 @@ if (widget.visual_type === 'MAP') {
 const DashboardModal: React.FC<{
   dashboardForm: Partial<Dashboard>;
   setDashboardForm: React.Dispatch<React.SetStateAction<Partial<Dashboard>>>;
+  dashboardModalError: string | null;
+  dashboardFieldErrors: { name?: string };
+  clearDashboardFieldError: (field: 'name') => void;
   widgets: Widget[];
   openCreateWidgetForSelectedDashboard: () => void;
   saveDashboard: () => Promise<void>;
@@ -1235,6 +1253,9 @@ const DashboardModal: React.FC<{
 }> = ({
   dashboardForm,
   setDashboardForm,
+  dashboardModalError,
+  dashboardFieldErrors,
+  clearDashboardFieldError,
   widgets,
   openCreateWidgetForSelectedDashboard,
   saveDashboard,
@@ -1242,98 +1263,69 @@ const DashboardModal: React.FC<{
   loadWidgets,
   loadDashboards
 }) => {
-  const relatedWidgets = widgets.filter(w => w.dashboard_id === dashboardForm.id);
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-30 flex justify-center items-start z-50 pt-12">
-      <div className="bg-white rounded-lg p-6 w-96 max-h-[80vh] overflow-y-auto">
-        <h2 className="text-xl font-semibold mb-4">{dashboardForm.id ? 'Edit Dashboard' : 'Create Dashboard'}</h2>
+    <div className="fixed inset-0 bg-slate-900/55 backdrop-blur-sm flex justify-center items-start z-50 pt-12 px-4">
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-2xl max-h-[86vh] overflow-y-auto">
+        <div className="mb-5">
+          <h2 className="text-2xl font-semibold text-slate-900">{dashboardForm.id ? 'Edit Dashboard' : 'Create Dashboard'}</h2>
+          <p className="text-sm text-slate-500 mt-1">Set dashboard details and manage linked widgets.</p>
+        </div>
 
-        <label className="block mb-1 font-medium">Name</label>
+        {dashboardModalError && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {dashboardModalError}
+          </div>
+        )}
+
+        <label className="block mb-1 font-medium text-slate-700">Name</label>
         <input
           type="text"
-          className="w-full border border-gray-300 rounded px-3 py-2 mb-4"
+          className={`w-full border rounded-lg px-3 py-2 mb-1 focus:outline-none focus:ring-2 focus:ring-blue-200 ${
+            dashboardFieldErrors.name ? 'border-red-400 focus:ring-red-100' : 'border-slate-300'
+          }`}
           value={dashboardForm.name ?? ''}
-          onChange={e => setDashboardForm(prev => ({ ...prev, name: e.target.value }))}
+          onChange={e => {
+            setDashboardForm(prev => ({ ...prev, name: e.target.value }));
+            clearDashboardFieldError('name');
+          }}
         />
+        {dashboardFieldErrors.name && <p className="text-sm text-red-600 mb-4">{dashboardFieldErrors.name}</p>}
 
-        <label className="block mb-1 font-medium">Description</label>
+        <label className="block mb-1 font-medium text-slate-700">Description</label>
         <textarea
-          className="w-full border border-gray-300 rounded px-3 py-2 mb-4"
+          className="w-full border border-slate-300 rounded-lg px-3 py-2 mb-4 focus:outline-none focus:ring-2 focus:ring-blue-200"
           value={dashboardForm.description ?? ''}
           onChange={e => setDashboardForm(prev => ({ ...prev, description: e.target.value }))}
         />
 
-        <label className="block mb-1 font-medium">Type</label>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+        <label className="block mb-1 font-medium text-slate-700">Type</label>
         <select
-          className="w-full border border-gray-300 rounded px-3 py-2 mb-4"
+          className="w-full border border-slate-300 rounded-lg px-3 py-2 mb-4 focus:outline-none focus:ring-2 focus:ring-blue-200"
           value={dashboardForm.type ?? 'STANDARD'}
           onChange={e => setDashboardForm(prev => ({ ...prev, type: e.target.value as DashboardType }))}
         >
           <option value="BASIC">BASIC</option>
           <option value="STANDARD">STANDARD</option>
         </select>
+        </div>
+        </div>
 
-        <label className="block mb-1 font-medium">Page Name</label>
+<label className="block mb-1 font-medium text-slate-700">Tab Name</label>
 <input
   type="text"
-  className="w-full border border-gray-300 rounded px-3 py-2 mb-4"
-  value={dashboardForm.page_name ?? ''}
-  onChange={e =>
-    setDashboardForm(prev => ({ ...prev, page_name: e.target.value }))
-  }
-/>
-
-<label className="block mb-1 font-medium">Tab Name</label>
-<input
-  type="text"
-  className="w-full border border-gray-300 rounded px-3 py-2 mb-4"
+  className="w-full border border-slate-300 rounded-lg px-3 py-2 mb-4 focus:outline-none focus:ring-2 focus:ring-blue-200"
   value={dashboardForm.tab_name ?? ''}
+  placeholder="e.g. Sales, Marketing, Finance"
   onChange={e =>
     setDashboardForm(prev => ({ ...prev, tab_name: e.target.value }))
   }
 />
 
-        <div className="mb-4">
-          <h3 className="font-semibold mb-2">Widgets</h3>
-          <div className="flex gap-2 mb-2">
-            <button className="px-3 py-1 bg-blue-600 text-white rounded" onClick={() => {
-              if (!dashboardForm.id) {
-                (async () => {
-                  await saveDashboard();
-                  if (!dashboardForm.id) {
-                    await loadDashboards();
-                  }
-                  openCreateWidgetForSelectedDashboard();
-                })();
-              } else {
-                openCreateWidgetForSelectedDashboard();
-              }
-            }}>Add Widget</button>
-
-            <button className="px-3 py-1 bg-gray-200 rounded" onClick={() => loadWidgets(dashboardForm.id)}>Refresh Widgets</button>
-          </div>
-
-          <ul className="max-h-40 overflow-y-auto border border-gray-200 rounded p-2">
-            {relatedWidgets.length === 0 && <li className="text-gray-500">No widgets for this dashboard</li>}
-            {relatedWidgets.map(w => (
-              <li key={w.id} className="flex justify-between items-center mb-1">
-                <div>
-                  <strong>{w.title}</strong>
-                  <div className="text-xs text-gray-500">Type: {w.visual_type}{w.chart_type ? ` (${w.chart_type})` : ''}</div>
-                </div>
-                <div className="flex gap-2">
-                  <button className="text-blue-600" onClick={() => { /* hook edit via parent if needed */ }}>Edit</button>
-                  <button className="text-red-600" onClick={() => { /* hook delete via parent if needed */ }}>Delete</button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="flex justify-end gap-2">
-          <button className="px-4 py-2 rounded bg-gray-300" onClick={() => setShowDashboardModal(false)}>Cancel</button>
-          <button className="px-4 py-2 rounded bg-blue-600 text-white" onClick={saveDashboard}>Save</button>
+        <div className="flex justify-end gap-2 border-t border-slate-200 pt-4 mt-5">
+          <button className="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-800" onClick={() => setShowDashboardModal(false)}>Cancel</button>
+          <button className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white" onClick={saveDashboard}>Save</button>
         </div>
       </div>
     </div>
@@ -1344,6 +1336,7 @@ const WidgetModal: React.FC<{
   widgetForm: Partial<Widget>;
   setWidgetForm: React.Dispatch<React.SetStateAction<Partial<Widget>>>;
   dataSources: DataSource[];
+  tabNameOptions: string[];
   saveWidget: () => Promise<void>;
   setShowWidgetModal: React.Dispatch<React.SetStateAction<boolean>>;
   fetchWidgetData: (widget: Widget) => Promise<void>;
@@ -1352,6 +1345,7 @@ const WidgetModal: React.FC<{
   widgetForm,
   setWidgetForm,
   dataSources,
+  tabNameOptions,
   saveWidget,
   setShowWidgetModal,
   fetchWidgetData,
@@ -1360,6 +1354,50 @@ const WidgetModal: React.FC<{
   const [previewData, setPreviewData] = useState<{ raw?: any; normalized?: NormalizedResponse } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  const clearFieldError = (field: string) => {
+    setFieldErrors(prev => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const validateWidgetForm = (): boolean => {
+    const errors: Record<string, string> = {};
+
+    if (!widgetForm.title || !widgetForm.title.trim()) {
+      errors.title = 'Widget title is required';
+    }
+    if (!(widgetForm.tabname || '').toString().trim()) {
+      errors.tab_name = 'Tab Name is required';
+    }
+    if (widgetForm.visual_type === 'CHART' && !widgetForm.chart_type) {
+      errors.chart_type = 'Chart type is required for chart widgets';
+    }
+    if ((widgetForm.position_row ?? 0) < 0) {
+      errors.position_row = 'Position row cannot be negative';
+    }
+    if ((widgetForm.position_col ?? 0) < 0) {
+      errors.position_col = 'Position column cannot be negative';
+    }
+    if ((widgetForm.col_span ?? 3) < 1 || (widgetForm.col_span ?? 3) > 12) {
+      errors.col_span = 'Col span must be between 1 and 12';
+    }
+    if ((widgetForm.row_span ?? 2) < 1) {
+      errors.row_span = 'Row span must be at least 1';
+    }
+
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleSaveWidget = async () => {
+    if (!validateWidgetForm()) return;
+    await saveWidget();
+  };
 
   const fetchPreviewData = async () => {
     if (!widgetForm.data_source_id) return;
@@ -1472,73 +1510,126 @@ const WidgetModal: React.FC<{
   }, [widgetForm.dashboard_id]);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-30 flex justify-center items-start z-50 pt-12">
-      <div className="bg-white rounded-lg p-6 w-96 max-h-[80vh] overflow-y-auto">
-        <h2 className="text-xl font-semibold mb-4">{widgetForm.id ? 'Edit Widget' : 'Create Widget'}</h2>
+    <div className="fixed inset-0 bg-slate-900/55 backdrop-blur-sm flex justify-center items-start z-50 pt-12 px-4">
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-3xl max-h-[86vh] overflow-y-auto">
+        <div className="flex items-start justify-between mb-5">
+          <div>
+            <h2 className="text-2xl font-semibold text-slate-900">{widgetForm.id ? 'Edit Widget' : 'Create Widget'}</h2>
+            <p className="text-sm text-slate-500 mt-1">Configure layout, visualization type, and data source.</p>
+          </div>
+          <button
+            className="rounded-lg border border-slate-200 px-3 py-1 text-slate-600 hover:bg-slate-50"
+            onClick={() => setShowWidgetModal(false)}
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
 
-        <label className="block mb-1 font-medium">Title</label>
+        <label className="block mb-1 font-medium text-slate-700">Title</label>
         <input
           type="text"
-          className="w-full border border-gray-300 rounded px-3 py-2 mb-3"
+          className={`w-full border rounded-lg px-3 py-2 mb-1 focus:outline-none focus:ring-2 ${
+            fieldErrors.title ? 'border-red-400 focus:ring-red-100' : 'border-slate-300 focus:ring-blue-200'
+          }`}
           value={widgetForm.title ?? ''}
-          onChange={e => setWidgetForm(prev => ({ ...prev, title: e.target.value }))}
+          onChange={e => {
+            setWidgetForm(prev => ({ ...prev, title: e.target.value }));
+            clearFieldError('title');
+          }}
         />
+        {fieldErrors.title && <p className="text-sm text-red-600 mb-3">{fieldErrors.title}</p>}
 
-        <label className="block mb-1 font-medium">Visual Type</label>
+        <label className="block mb-1 font-medium text-slate-700">Tab Name</label>
         <select
-          className="w-full border border-gray-300 rounded px-3 py-2 mb-3"
-          value={widgetForm.visual_type ?? 'CHART'}
-          onChange={e => setWidgetForm(prev => ({ ...prev, visual_type: e.target.value as VisualType }))}
+          className={`w-full border rounded-lg px-3 py-2 mb-1 focus:outline-none focus:ring-2 ${
+            fieldErrors.tab_name ? 'border-red-400 focus:ring-red-100' : 'border-slate-300 focus:ring-blue-200'
+          }`}
+          value={widgetForm.tabname ?? ''}
+          onChange={e => {
+            const value = e.target.value;
+            setWidgetForm(prev => ({
+              ...prev,
+              tabname: value,
+              config_json: { ...(prev.config_json || {}), tab_name: value },
+            }));
+            clearFieldError('tab_name');
+          }}
         >
-          <option value="KPI">KPI</option>
-          <option value="CHART">CHART</option>
-          <option value="TABLE">TABLE</option>
-          <option value="TEXT">TEXT</option>
-          <option value="CUSTOM">CUSTOM</option>
-          <option value="MAP">MAP</option>
+          <option value="">Select Tab</option>
+          {tabNameOptions.map((tab, idx) => (
+            <option key={`${tab}-${idx}`} value={tab}>
+              {tab}
+            </option>
+          ))}
         </select>
+        {fieldErrors.tab_name && <p className="text-sm text-red-600 mb-3">{fieldErrors.tab_name}</p>}
 
-        {widgetForm.visual_type === 'CHART' && (
-          <>
-            <label className="block mb-1 font-medium">Chart Type</label>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-1">
+          <div>
+            <label className="block mb-1 font-medium text-slate-700">Visual Type</label>
             <select
-              className="w-full border border-gray-300 rounded px-3 py-2 mb-3"
-              value={widgetForm.chart_type ?? 'BAR'}
-              onChange={e => setWidgetForm(prev => ({ ...prev, chart_type: e.target.value as ChartType }))}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              value={widgetForm.visual_type ?? 'CHART'}
+              onChange={e => setWidgetForm(prev => ({ ...prev, visual_type: e.target.value as VisualType }))}
             >
-              <option value="BAR">Bar Chart</option>
-              <option value="PIE">Pie Chart</option>
-              <option value="LINE">Line Chart</option>
+              <option value="KPI">KPI</option>
+              <option value="CHART">CHART</option>
+              <option value="TABLE">TABLE</option>
+              <option value="TEXT">TEXT</option>
+              <option value="CUSTOM">CUSTOM</option>
+              <option value="MAP">MAP</option>
             </select>
-          </>
-        )}
+          </div>
+
+          {widgetForm.visual_type === 'CHART' && (
+            <div>
+              <label className="block mb-1 font-medium text-slate-700">Chart Type</label>
+              <select
+                className={`w-full border rounded-lg px-3 py-2 mb-1 focus:outline-none focus:ring-2 ${
+                  fieldErrors.chart_type ? 'border-red-400 focus:ring-red-100' : 'border-slate-300 focus:ring-blue-200'
+                }`}
+                value={widgetForm.chart_type ?? 'BAR'}
+                onChange={e => {
+                  setWidgetForm(prev => ({ ...prev, chart_type: e.target.value as ChartType }));
+                  clearFieldError('chart_type');
+                }}
+              >
+                <option value="BAR">Bar Chart</option>
+                <option value="PIE">Pie Chart</option>
+                <option value="LINE">Line Chart</option>
+              </select>
+              {fieldErrors.chart_type && <p className="text-sm text-red-600 mb-2">{fieldErrors.chart_type}</p>}
+            </div>
+          )}
+        </div>
 
         {widgetForm.visual_type === 'KPI' && (
-          <div className="mb-4 p-3 bg-blue-50 rounded">
-            <h4 className="font-medium mb-2">KPI Configuration</h4>
+          <div className="mb-4 p-4 bg-blue-50/70 border border-blue-100 rounded-xl">
+            <h4 className="font-semibold text-slate-800 mb-3">KPI Configuration</h4>
 
-            <label className="block mb-1 font-medium">Value</label>
+            <label className="block mb-1 font-medium text-slate-700">Value</label>
             <input
               type="text"
-              className="w-full border border-gray-300 rounded px-3 py-2 mb-2"
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-200"
               value={widgetForm.config_json?.value ?? ''}
               onChange={e => updateConfigJson('value', e.target.value)}
               placeholder="e.g., 12345"
             />
 
-            <label className="block mb-1 font-medium">Trend</label>
+            <label className="block mb-1 font-medium text-slate-700">Trend</label>
             <input
               type="text"
-              className="w-full border border-gray-300 rounded px-3 py-2 mb-2"
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-200"
               value={widgetForm.config_json?.trend ?? ''}
               onChange={e => updateConfigJson('trend', e.target.value)}
               placeholder="e.g., +5%"
             />
 
-            <label className="block mb-1 font-medium">Description</label>
+            <label className="block mb-1 font-medium text-slate-700">Description</label>
             <input
               type="text"
-              className="w-full border border-gray-300 rounded px-3 py-2 mb-2"
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-200"
               value={widgetForm.config_json?.description ?? ''}
               onChange={e => updateConfigJson('description', e.target.value)}
               placeholder="e.g., Monthly Sales"
@@ -1546,62 +1637,106 @@ const WidgetModal: React.FC<{
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-2 mb-3">
-          <div>
-            <label className="block mb-1 font-medium">Position Row</label>
-            <input
-              type="number"
-              className="w-full border border-gray-300 rounded px-3 py-2"
-              value={widgetForm.position_row ?? 0}
-              onChange={e => setWidgetForm(prev => ({ ...prev, position_row: parseInt(e.target.value || '0') }))}
-            />
+        <div className="mb-4 rounded-xl border border-slate-200 p-4 bg-slate-50/50">
+          <h4 className="font-semibold text-slate-800 mb-3">Layout</h4>
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label className="block mb-1 font-medium text-slate-700">Position Row</label>
+              <input
+                type="number"
+                className={`w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 ${
+                  fieldErrors.position_row ? 'border-red-400 focus:ring-red-100' : 'border-slate-300 focus:ring-blue-200'
+                }`}
+                value={widgetForm.position_row ?? 0}
+                onChange={e => {
+                  setWidgetForm(prev => ({ ...prev, position_row: parseInt(e.target.value || '0') }));
+                  clearFieldError('position_row');
+                }}
+              />
+              {fieldErrors.position_row && <p className="text-sm text-red-600 mt-1">{fieldErrors.position_row}</p>}
+            </div>
+            <div>
+              <label className="block mb-1 font-medium text-slate-700">Position Col</label>
+              <input
+                type="number"
+                className={`w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 ${
+                  fieldErrors.position_col ? 'border-red-400 focus:ring-red-100' : 'border-slate-300 focus:ring-blue-200'
+                }`}
+                value={widgetForm.position_col ?? 0}
+                onChange={e => {
+                  setWidgetForm(prev => ({ ...prev, position_col: parseInt(e.target.value || '0') }));
+                  clearFieldError('position_col');
+                }}
+              />
+              {fieldErrors.position_col && <p className="text-sm text-red-600 mt-1">{fieldErrors.position_col}</p>}
+            </div>
           </div>
-          <div>
-            <label className="block mb-1 font-medium">Position Col</label>
-            <input
-              type="number"
-              className="w-full border border-gray-300 rounded px-3 py-2"
-              value={widgetForm.position_col ?? 0}
-              onChange={e => setWidgetForm(prev => ({ ...prev, position_col: parseInt(e.target.value || '0') }))}
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block mb-1 font-medium text-slate-700">Col Span (Width)</label>
+              <input
+                type="number"
+                className={`w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 ${
+                  fieldErrors.col_span ? 'border-red-400 focus:ring-red-100' : 'border-slate-300 focus:ring-blue-200'
+                }`}
+                value={widgetForm.col_span ?? 3}
+                min={1}
+                max={12}
+                onChange={e => {
+                  setWidgetForm(prev => ({ ...prev, col_span: parseInt(e.target.value || '3') }));
+                  clearFieldError('col_span');
+                }}
+              />
+              {fieldErrors.col_span && <p className="text-sm text-red-600 mt-1">{fieldErrors.col_span}</p>}
+            </div>
+            <div>
+              <label className="block mb-1 font-medium text-slate-700">Row Span (Height)</label>
+              <input
+                type="number"
+                className={`w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 ${
+                  fieldErrors.row_span ? 'border-red-400 focus:ring-red-100' : 'border-slate-300 focus:ring-blue-200'
+                }`}
+                value={widgetForm.row_span ?? 2}
+                min={1}
+                onChange={e => {
+                  setWidgetForm(prev => ({ ...prev, row_span: parseInt(e.target.value || '2') }));
+                  clearFieldError('row_span');
+                }}
+              />
+              {fieldErrors.row_span && <p className="text-sm text-red-600 mt-1">{fieldErrors.row_span}</p>}
+            </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 mb-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
           <div>
-            <label className="block mb-1 font-medium">Col Span (Width)</label>
+            <label className="block mb-1 font-medium text-slate-700">Background Color</label>
             <input
-              type="number"
-              className="w-full border border-gray-300 rounded px-3 py-2"
-              value={widgetForm.col_span ?? 3}
-              min={1}
-              max={12}
-              onChange={e => setWidgetForm(prev => ({ ...prev, col_span: parseInt(e.target.value || '3') }))}
+              type="color"
+              className="w-full h-11 border border-slate-300 rounded-lg px-2 py-2 mb-3 bg-white"
+              value={widgetForm.background_color ?? '#ffffff'}
+              onChange={e => setWidgetForm(prev => ({ ...prev, background_color: e.target.value }))}
             />
           </div>
           <div>
-            <label className="block mb-1 font-medium">Row Span (Height)</label>
-            <input
-              type="number"
-              className="w-full border border-gray-300 rounded px-3 py-2"
-              value={widgetForm.row_span ?? 2}
-              min={1}
-              onChange={e => setWidgetForm(prev => ({ ...prev, row_span: parseInt(e.target.value || '2') }))}
-            />
+            <label className="block mb-1 font-medium text-slate-700">Refresh Interval (sec)</label>
+            <select
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              value={widgetForm.refresh_interval_sec ?? 0}
+              onChange={e => setWidgetForm(prev => ({ ...prev, refresh_interval_sec: parseInt(e.target.value || '0') }))}
+            >
+              <option value={0}>Disabled</option>
+              <option value={15}>15 sec</option>
+              <option value={30}>30 sec</option>
+              <option value={60}>60 sec</option>
+              <option value={120}>120 sec</option>
+            </select>
           </div>
         </div>
 
-        <label className="block mb-1 font-medium">Background Color</label>
-        <input
-          type="color"
-          className="w-full border border-gray-300 rounded px-3 py-2 mb-3"
-          value={widgetForm.background_color ?? '#ffffff'}
-          onChange={e => setWidgetForm(prev => ({ ...prev, background_color: e.target.value }))}
-        />
-
-        <label className="block mb-1 font-medium">Data Source</label>
+        <label className="block mb-1 font-medium text-slate-700">Data Source</label>
         <select
-          className="w-full border border-gray-300 rounded px-3 py-2 mb-3"
+          className="w-full border rounded-lg px-3 py-2 mb-1 focus:outline-none focus:ring-2 border-slate-300 focus:ring-blue-200"
           value={widgetForm.data_source_id ?? ''}
           onChange={e => setWidgetForm(prev => ({ ...prev, data_source_id: e.target.value ? parseInt(e.target.value) : null }))}
         >
@@ -1610,10 +1745,10 @@ const WidgetModal: React.FC<{
         </select>
 
         {widgetForm.data_source_id && (
-          <div className="mb-3 p-3 bg-gray-50 rounded">
-            <h4 className="font-medium mb-2">Data Preview</h4>
+          <div className="mb-4 p-4 bg-slate-50 border border-slate-200 rounded-xl">
+            <h4 className="font-semibold text-slate-800 mb-2">Data Preview</h4>
             {previewLoading ? (
-              <div className="text-center py-2">Loading...</div>
+              <div className="text-center py-2 text-slate-500">Loading...</div>
             ) : previewError ? (
               <div className="text-red-500 text-sm">{previewError}</div>
             ) : previewData ? (
@@ -1623,26 +1758,19 @@ const WidgetModal: React.FC<{
                     <KPIView k={previewData.normalized as NormalizedKPI} small />
                   </div>
                 ) : null}
-                <pre className="bg-white p-2 rounded border max-h-32 overflow-y-auto">
+                <pre className="bg-white p-3 rounded-lg border border-slate-200 max-h-36 overflow-y-auto text-xs">
                   {JSON.stringify(previewData.raw ?? previewData.normalized ?? previewData, null, 2)}
                 </pre>
               </div>
             ) : (
-              <div className="text-gray-500 text-sm">No data available</div>
+              <div className="text-slate-500 text-sm">No data available</div>
             )}
           </div>
         )}
 
-        <label className="block mb-1 font-medium">Refresh Interval (sec)</label>
-        <input
-          type="number"
-          className="w-full border border-gray-300 rounded px-3 py-2 mb-3"
-          value={widgetForm.refresh_interval_sec ?? 0}
-          onChange={e => setWidgetForm(prev => ({ ...prev, refresh_interval_sec: parseInt(e.target.value || '0') }))}
-        />
-        <label className="block mb-1 font-medium">Context Menu Options (JSON)</label>
+        <label className="block mb-1 font-medium text-slate-700">Context Menu Options (JSON)</label>
 <textarea
-  className="w-full border border-gray-300 rounded px-3 py-2 mb-3 font-mono text-xs min-h-[100px]"
+  className="w-full border border-slate-300 rounded-lg px-3 py-2 mb-2 font-mono text-xs min-h-[110px] focus:outline-none focus:ring-2 focus:ring-blue-200"
   placeholder='e.g. [{"label":"View Details","action":"viewDetails"},{"label":"Export Data","action":"exportData"}]'
   value={JSON.stringify(widgetForm.interaction_config_json ?? [], null, 2)}
   onChange={e => {
@@ -1654,13 +1782,13 @@ const WidgetModal: React.FC<{
     }
   }}
 />
-<p className="text-xs text-gray-500 mb-3">
+<p className="text-xs text-slate-500 mb-3">
   Define the context menu options for this widget as a JSON array of objects with "label" and "action" keys.
 </p>
 
-        <div className="flex justify-end gap-2">
-          <button className="px-4 py-2 rounded bg-gray-300" onClick={() => setShowWidgetModal(false)}>Cancel</button>
-          <button className="px-4 py-2 rounded bg-blue-600 text-white" onClick={saveWidget}>Save</button>
+        <div className="flex justify-end gap-2 border-t border-slate-200 pt-4 mt-5">
+          <button className="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-800" onClick={() => setShowWidgetModal(false)}>Cancel</button>
+          <button className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white" onClick={handleSaveWidget}>Save Widget</button>
         </div>
       </div>
     </div>
@@ -2073,6 +2201,8 @@ const DashboardManager: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboards' | 'widgets' | 'datasources' | 'assignFilters'>('dashboards');
   const [showDashboardModal, setShowDashboardModal] = useState(false);
   const [dashboardForm, setDashboardForm] = useState<Partial<Dashboard>>({});
+  const [dashboardModalError, setDashboardModalError] = useState<string | null>(null);
+  const [dashboardFieldErrors, setDashboardFieldErrors] = useState<{ name?: string }>({});
   const [showWidgetModal, setShowWidgetModal] = useState(false);
   const [widgetForm, setWidgetForm] = useState<Partial<Widget>>({});
   const [showDataSourceModal, setShowDataSourceModal] = useState(false);
@@ -2094,6 +2224,14 @@ const [widgetContextMenuAssignments, setWidgetContextMenuAssignments] = useState
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const [gridWidth, setGridWidth] = React.useState<number>(1200);
   // Add this for debugging
+  const tabNameOptions = Array.from(
+    new Set(
+      (selectedDashboard?.tab_name || '')
+        .split(',')
+        .map((tab) => tab.trim())
+        .filter(Boolean)
+    )
+  );
 
 
   React.useEffect(() => {
@@ -2521,27 +2659,50 @@ async function loadDashboardFilterMappings() {
   /* --- Dashboard CRUD --- */
 
   function openCreateDashboard() {
+    setDashboardModalError(null);
+    setDashboardFieldErrors({});
     setDashboardForm({ type: 'STANDARD',page_name: '',tab_name: '', is_default: false, is_active: true, name: '', description: '' });
     setShowDashboardModal(true);
   }
 
   function openEditDashboard(d: Dashboard) {
+    setDashboardModalError(null);
+    setDashboardFieldErrors({});
     setDashboardForm({ ...d });
     setShowDashboardModal(true);
   }
 
+  const clearDashboardFieldError = (field: 'name') => {
+    setDashboardFieldErrors(prev => {
+      if (!prev[field]) return prev;
+      return { ...prev, [field]: undefined };
+    });
+  };
+
   async function saveDashboard() {
   setError(null);
+  setDashboardModalError(null);
+  setDashboardFieldErrors({});
   try {
     if (!dashboardForm.name || !dashboardForm.name.trim()) {
-      setError('Dashboard name is required');
+      setDashboardFieldErrors({ name: 'Dashboard name is required' });
       return;
     }
+    const normalizedTabName = (dashboardForm.tab_name ?? '')
+      .split(',')
+      .map((tab) => tab.trim())
+      .filter(Boolean)
+      .join(',');
+    const payload: Partial<Dashboard> = {
+      ...dashboardForm,
+      tab_name: normalizedTabName,
+      page_name: '',
+    };
     if (dashboardForm.id) {
       // Editing existing dashboard
       const updated = await apiFetch<Dashboard>(`/dashboards/${dashboardForm.id}`, {
         method: 'PUT',
-        body: JSON.stringify(dashboardForm),
+        body: JSON.stringify(payload),
         headers: { 'X-User-Id': '1' },
       });
       setDashboards(prev => prev.map(d => (d.id === updated.id ? updated : d)));
@@ -2551,7 +2712,7 @@ async function loadDashboardFilterMappings() {
       // Creating new dashboard
       const created = await apiFetch<Dashboard>('/dashboards', {
         method: 'POST',
-        body: JSON.stringify(dashboardForm),
+        body: JSON.stringify(payload),
         headers: { 'X-User-Id': '1' },
       });
       setDashboards(prev => [...prev, created]);
@@ -2561,7 +2722,7 @@ async function loadDashboardFilterMappings() {
     }
   } catch (e: any) {
     console.error(e);
-    setError(e.message || 'Failed to save dashboard');
+    setDashboardModalError(e.message || 'Failed to save dashboard');
   }
 }
 
@@ -2600,12 +2761,17 @@ async function loadDashboardFilterMappings() {
       is_visible: true,
       sort_order: 0,
       title: '',
+      tabname: tabNameOptions[0] ?? '',
+      config_json: {
+        tab_name: tabNameOptions[0] ?? '',
+      },
     });
     setShowWidgetModal(true);
   }
 
   function openEditWidget(w: Widget) {
-    setWidgetForm({ ...w });
+    const fallbackTab = (w.config_json?.tab_name as string) ?? '';
+    setWidgetForm({ ...w, tabname: w.tabname ?? fallbackTab });
     setShowWidgetModal(true);
   }
 
@@ -2619,15 +2785,15 @@ async function loadDashboardFilterMappings() {
       throw new Error('Widget must be linked to a dashboard');
     }
 
-    // Ensure title
-    if (!widgetForm.title || !widgetForm.title.trim()) {
-      widgetForm.title = 'Untitled';
-    }
-
     // Build payload explicitly with dashboard_id
     const payload: Partial<Widget> = {
       ...widgetForm,
       dashboard_id: effectiveDashboardId,
+      tabname: (widgetForm.tabname || '').trim(),
+      config_json: {
+        ...(widgetForm.config_json || {}),
+        tab_name: (widgetForm.tabname || '').trim(),
+      },
     };
 
     let updatedOrCreated: Widget;
@@ -2892,7 +3058,7 @@ async function loadDashboardFilterMappings() {
         </div>
       )}
 
-      {error && <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">{error}</div>}
+      {error && !showDashboardModal && <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">{error}</div>}
 
       {loading ? (
         <div className="flex justify-center items-center h-64"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" /></div>
@@ -2924,6 +3090,20 @@ async function loadDashboardFilterMappings() {
                       <div>
                         <h3 className="text-xl font-bold">{selectedDashboard.name}</h3>
                         <p className="text-gray-600">{selectedDashboard.description}</p>
+                        {(selectedDashboard.page_name || selectedDashboard.tab_name) && (
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                            {selectedDashboard.page_name && (
+                              <span className="px-2 py-1 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                Page: {selectedDashboard.page_name}
+                              </span>
+                            )}
+                            {selectedDashboard.tab_name && (
+                              <span className="px-2 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                Tab: {selectedDashboard.tab_name}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                       <div className="flex gap-2">
                         <button onClick={() => openEditDashboard(selectedDashboard)} className="px-3 py-1 bg-gray-100 rounded">Edit</button>
@@ -3190,6 +3370,9 @@ async function loadDashboardFilterMappings() {
         <DashboardModal
           dashboardForm={dashboardForm}
           setDashboardForm={setDashboardForm}
+          dashboardModalError={dashboardModalError}
+          dashboardFieldErrors={dashboardFieldErrors}
+          clearDashboardFieldError={clearDashboardFieldError}
           widgets={widgets}
           openCreateWidgetForSelectedDashboard={openCreateWidgetForSelectedDashboard}
           saveDashboard={saveDashboard}
@@ -3203,6 +3386,7 @@ async function loadDashboardFilterMappings() {
           widgetForm={widgetForm}
           setWidgetForm={setWidgetForm}
           dataSources={dataSources}
+          tabNameOptions={tabNameOptions}
           saveWidget={saveWidget}
           setShowWidgetModal={setShowWidgetModal}
           fetchWidgetData={fetchWidgetData}

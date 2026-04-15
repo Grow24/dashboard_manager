@@ -379,13 +379,16 @@ const DashboardCreationPopup: React.FC<DashboardCreationPopupProps> = ({
     <div className="dashboard-popup-overlay">
       <div className="dashboard-popup">
         <div className="dashboard-popup-header">
-          <h2>Create New Dashboard22</h2>
+          <div className="dashboard-popup-title-wrap">
+            <h2>Create Dashboard</h2>
+            <p>Configure details, attach pages, and compose panes in one flow.</p>
+          </div>
           <button className="close-button" onClick={onClose}>
             ×
           </button>
         </div>
 
-        <div className="dashboard-popup-tabs" style={{ border: '1px solid red' }}>
+        <div className="dashboard-popup-tabs">
           <button
             className={`tab-button ${activeTab === 'details' ? 'active' : ''}`}
             onClick={() => setActiveTab('details')}
@@ -412,7 +415,7 @@ const DashboardCreationPopup: React.FC<DashboardCreationPopupProps> = ({
           </button>
         </div>
 
-        <div className="dashboard-popup-content" style={{ height: '650px', overflowY: 'auto' }}>
+        <div className="dashboard-popup-content">
           {activeTab === 'details' && (
             <div className="tab-content">
               <div className="form-group">
@@ -641,17 +644,7 @@ const DashboardCreationPopup: React.FC<DashboardCreationPopupProps> = ({
           {activeTab === 'preview' && (
             <div className="tab-content preview-tab">
               <h3>Dashboard Preview: {dashboardName || 'Untitled'}</h3>
-              <div
-                className="dashboard-preview-canvas"
-                style={{
-                  position: 'relative',
-                  width: '100%',
-                  height: '600px',
-                  border: '1px solid #ccc',
-                  background: '#f9f9f9',
-                  overflow: 'auto',
-                }}
-              >
+              <div className="dashboard-preview-canvas">
                 {/* Render Pages */}
                 {selectedPages.map((page) => (
                   <div
@@ -683,11 +676,7 @@ const DashboardCreationPopup: React.FC<DashboardCreationPopupProps> = ({
                       }}
                     >
                       {/* Render visualization based on page data */}
-                      {pageData[page.id] ? (
-                        renderVisualization(pageData[page.id])
-                      ) : (
-                        <div>Loading visualization...</div>
-                      )}
+                      {pageData[page.id] ? renderVisualization(pageData[page.id]) : <div className="preview-loading">Loading visualization...</div>}
                     </div>
                     
                     {/* Display additional page data if available */}
