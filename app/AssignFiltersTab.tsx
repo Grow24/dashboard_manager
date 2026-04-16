@@ -44,7 +44,13 @@ export default function AssignFiltersTab({ apiBaseUrl }: Props) {
       try {
         const res = await fetch(`${apiBaseUrl}/get_dashboards.php`);
         const json: ApiResponse<{ dashboards: Dashboard[] }> = await res.json();
-        if (json.success && !cancelled) setDashboards(json.dashboards);
+        if (json.success && !cancelled) {
+          const normalized = (json.dashboards || []).map((d: any) => ({
+            id: Number(d.id),
+            name: String(d.name ?? d.dashboard_name ?? `Dashboard ${d.id}`),
+          }));
+          setDashboards(normalized.filter((d) => Number.isFinite(d.id)));
+        }
       } finally {
         if (!cancelled) setIsLoadingDashboards(false);
       }
@@ -59,7 +65,13 @@ export default function AssignFiltersTab({ apiBaseUrl }: Props) {
       try {
         const res = await fetch(`${apiBaseUrl}/get_filters.php`);
         const json: ApiResponse<{ filters: FilterItem[] }> = await res.json();
-        if (json.success && !cancelled) setFilters(json.filters);
+        if (json.success && !cancelled) {
+          const normalized = (json.filters || []).map((f: any) => ({
+            id: Number(f.id),
+            name: String(f.name ?? f.filter_name ?? `Filter ${f.id}`),
+          }));
+          setFilters(normalized.filter((f) => Number.isFinite(f.id)));
+        }
       } finally {
         if (!cancelled) setIsLoadingFilters(false);
       }
@@ -80,7 +92,13 @@ export default function AssignFiltersTab({ apiBaseUrl }: Props) {
       try {
         const res = await fetch(`${apiBaseUrl}/get_widgets.php?dashboard_id=${selectedDashboardId}`);
         const json: ApiResponse<{ widgets: Widget[] }> = await res.json();
-        if (json.success && !cancelled) setWidgets(json.widgets);
+        if (json.success && !cancelled) {
+          const normalized = (json.widgets || []).map((w: any) => ({
+            id: Number(w.id),
+            name: String(w.name ?? w.title ?? `Widget ${w.id}`),
+          }));
+          setWidgets(normalized.filter((w) => Number.isFinite(w.id)));
+        }
       } finally {
         if (!cancelled) setIsLoadingWidgets(false);
       }
@@ -175,9 +193,10 @@ export default function AssignFiltersTab({ apiBaseUrl }: Props) {
               <label className="text-sm font-medium">Dashboard</label>
               <select
                 className="w-full border rounded px-3 py-2"
-                value={selectedDashboardId}
+                value={selectedDashboardId === "" ? "" : String(selectedDashboardId)}
                 onChange={e => {
-                  setSelectedDashboardId(Number(e.target.value));
+                  const value = e.target.value;
+                  setSelectedDashboardId(value === "" ? "" : Number(value));
                   setScope({ kind: "dashboard" });
                 }}
               >
@@ -193,7 +212,7 @@ export default function AssignFiltersTab({ apiBaseUrl }: Props) {
               <select
                 className="w-full border rounded px-3 py-2"
                 disabled={!selectedDashboardId}
-                value={scope.kind === "dashboard" ? "dashboard" : scope.widgetId}
+                value={scope.kind === "dashboard" ? "dashboard" : String(scope.widgetId)}
                 onChange={e =>
                   e.target.value === "dashboard"
                     ? setScope({ kind: "dashboard" })

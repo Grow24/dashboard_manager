@@ -2774,6 +2774,18 @@ const FormWorkflowContent = () => {
             </button>
             <button
               onClick={() => {
+                setSelectedMenu('DashboardList');
+                setAboutSubMenuOpen(false);
+              }}
+              className={`font-medium ${
+                selectedMenu === 'DashboardList' ? 'text-indigo-600' : 'text-gray-700 hover:text-gray-900'
+              }`}
+              type="button"
+            >
+              DashboardList
+            </button>
+            <button
+              onClick={() => {
                 setSelectedMenu('ReportManager');
                 setAboutSubMenuOpen(false);
               }}
@@ -2927,18 +2939,6 @@ const FormWorkflowContent = () => {
               type="button"
             >
               TestPageCreation
-            </button>
-            <button
-              onClick={() => {
-                setSelectedMenu('DashboardList');
-                setAboutSubMenuOpen(false);
-              }}
-              className={`font-medium ${
-                selectedMenu === 'DashboardList' ? 'text-indigo-600' : 'text-gray-700 hover:text-gray-900'
-              }`}
-              type="button"
-            >
-              DashboardList
             </button>
               <button
               onClick={() => {

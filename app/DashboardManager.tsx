@@ -31,9 +31,64 @@ const _MapWidget = dynamic(() => import('../components/MapWidget'), {
 });
 type DashboardType = 'BASIC' | 'STANDARD';
 type VisualType = 'KPI' | 'CHART' | 'TABLE' | 'TEXT' | 'CUSTOM' | 'MAP';
-type ChartType = 'BAR' | 'PIE' | 'LINE';
+type ChartType =
+  | 'BAR'
+  | 'PIE'
+  | 'LINE'
+  | 'DONUT'
+  | 'AREA'
+  | 'SCATTER'
+  | 'HORIZONTAL_BAR'
+  | 'STACKED_BAR'
+  | 'MULTI_SERIES_LINE'
+  | 'COMBO';
 type SourceType = 'API' | 'SQL' | 'STATIC';
 type HttpMethod = 'GET' | 'POST';
+
+const CHART_TYPE_OPTIONS: { value: ChartType; label: string; group: string }[] = [
+  { value: 'BAR', label: 'Bar Chart', group: 'Comparison' },
+  { value: 'HORIZONTAL_BAR', label: 'Horizontal Bar', group: 'Comparison' },
+  { value: 'STACKED_BAR', label: 'Stacked Bar', group: 'Comparison' },
+  { value: 'LINE', label: 'Line Chart', group: 'Trend' },
+  { value: 'AREA', label: 'Area Chart', group: 'Trend' },
+  { value: 'MULTI_SERIES_LINE', label: 'Multi-series Line', group: 'Trend' },
+  { value: 'COMBO', label: 'Combo (Bar + Line)', group: 'Trend' },
+  { value: 'SCATTER', label: 'Scatter Plot', group: 'Distribution' },
+  { value: 'PIE', label: 'Pie Chart', group: 'Part-to-Whole' },
+  { value: 'DONUT', label: 'Donut Chart', group: 'Part-to-Whole' },
+];
+
+const PANEL_FORMAT_OPTIONS: { value: string; label: string; visualType: VisualType }[] = [
+  { value: 'KPI', label: 'KPI', visualType: 'KPI' },
+  { value: 'GAUGE', label: 'Gauge', visualType: 'KPI' },
+  { value: 'PROGRESS', label: 'Progress', visualType: 'KPI' },
+  { value: 'CHART', label: 'Chart', visualType: 'CHART' },
+  { value: 'TABLE', label: 'Table', visualType: 'TABLE' },
+  { value: 'LIST', label: 'List', visualType: 'TABLE' },
+  { value: 'TEXT', label: 'Text', visualType: 'TEXT' },
+  { value: 'ALERT', label: 'Alert Text', visualType: 'TEXT' },
+  { value: 'CUSTOM', label: 'Custom', visualType: 'CUSTOM' },
+  { value: 'TIMELINE', label: 'Timeline', visualType: 'CUSTOM' },
+  { value: 'MAP', label: 'Map', visualType: 'MAP' },
+];
+
+function inferPanelFormat(visualType?: VisualType, configJson?: Record<string, any> | null): string {
+  const vt = (visualType ?? 'CHART') as VisualType;
+  // MAP / CHART use visual_type directly in the Panel Format dropdown (no panel_variant).
+  if (vt === 'MAP' || vt === 'CHART') return vt;
+  const variant = String(configJson?.panel_variant ?? '').trim().toUpperCase();
+  if (variant) return variant;
+  return vt as string;
+}
+
+function resolvePanelFormatSelection(selection: string): { visualType: VisualType; panelVariant?: string } {
+  const sel = selection.toUpperCase();
+  const found = PANEL_FORMAT_OPTIONS.find((opt) => opt.value === sel);
+  if (!found) return { visualType: 'CHART' };
+  const base = found.visualType;
+  if (sel === base) return { visualType: base };
+  return { visualType: base, panelVariant: sel };
+}
 
 interface Dashboard {
   id: number;
@@ -157,8 +212,99 @@ type NormalizedChart = { kind: 'chart'; data: { label: string; value: number }[]
 type NormalizedTable = { kind: 'table'; columns: string[]; rows: any[]; raw?: any; };
 type NormalizedResponse = NormalizedKPI | NormalizedChart | NormalizedTable | { kind: 'raw'; raw: any; } | { kind: 'text'; text: string; raw?: any; };
 
-function normalizeApiResponse(raw: any): NormalizedResponse {
+/** Parse lat/lng from a row (supports common key spellings). */
+function getGeoCoords(obj: any): { lat: number; lng: number } | null {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  const latRaw =
+    obj.lat ?? obj.latitude ?? obj.Lat ?? obj.Latitude ?? obj.LAT ?? obj.y ?? obj.Y;
+  const lngRaw =
+    obj.lng ??
+    obj.longitude ??
+    obj.lon ??
+    obj.long ??
+    obj.Longitude ??
+    obj.Lng ??
+    obj.LON ??
+    obj.x ??
+    obj.X;
+  if (latRaw === undefined || lngRaw === undefined) return null;
+  const lat = Number(latRaw);
+  const lng = Number(lngRaw);
+  if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+  return { lat, lng };
+}
+
+/** Rows/objects that look like map markers (used before classifying arrays as chart/table). */
+function isLikelyGeoPointArray(arr: any): boolean {
+  if (!Array.isArray(arr) || arr.length === 0) return false;
+  const s = arr[0];
+  if (!s || typeof s !== 'object') return false;
+  if (getGeoCoords(s)) return true;
+  if (s.type === 'Feature' && s.geometry?.type === 'Point' && Array.isArray(s.geometry.coordinates)) return true;
+  return false;
+}
+
+/**
+ * Pull marker rows from API payloads (arrays, { data/locations/... }, GeoJSON).
+ * Widget fetch stores { raw, normalized } — always pass response body here (e.g. apiData.raw).
+ */
+function extractMapLocationRows(source: any): any[] {
+  if (source == null) return [];
+  if (typeof source === 'string') {
+    try {
+      return extractMapLocationRows(JSON.parse(source));
+    } catch {
+      return [];
+    }
+  }
+  if (Array.isArray(source)) {
+    if (
+      source.length >= 2 &&
+      typeof source[0] === 'number' &&
+      typeof source[1] === 'number'
+    ) {
+      // Coordinate tuple [lng, lat]
+      return [{ lng: source[0], lat: source[1] }];
+    }
+    if (isLikelyGeoPointArray(source)) return source;
+    const fromChildren = source.flatMap((item: any) => extractMapLocationRows(item));
+    if (fromChildren.length) return fromChildren;
+    return [];
+  }
+  if (typeof source !== 'object') return [];
+
+  if (source.type === 'FeatureCollection' && Array.isArray(source.features)) {
+    return source.features.flatMap((f: any) => extractMapLocationRows(f));
+  }
+  if (source.type === 'Feature' && source.geometry?.type === 'Point' && Array.isArray(source.geometry.coordinates)) {
+    const [lng, lat] = source.geometry.coordinates;
+    const label =
+      source.properties?.label ?? source.properties?.name ?? source.properties?.title ?? '';
+    return [{ lat: Number(lat), lng: Number(lng), label }];
+  }
+
+  const nestedKeys = ['locations', 'data', 'results', 'items', 'records', 'markers', 'points', 'rows', 'values'];
+  for (const k of nestedKeys) {
+    const v = (source as any)[k];
+    if (v !== undefined && v !== null) {
+      const got = extractMapLocationRows(v);
+      if (got.length) return got;
+    }
+  }
+
+  if (getGeoCoords(source)) {
+    return [source];
+  }
+
+  return [];
+}
+
+export function normalizeApiResponse(raw: any): NormalizedResponse {
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    if (Array.isArray(raw.data) && raw.data.length > 0 && isLikelyGeoPointArray(raw.data)) {
+      return { kind: 'raw', raw };
+    }
+
     if ('value' in raw || 'trend' in raw || 'metrics' in raw) {
       const kpi: NormalizedKPI = {
         kind: 'kpi',
@@ -176,7 +322,13 @@ function normalizeApiResponse(raw: any): NormalizedResponse {
 
     if (Array.isArray(raw.data) && raw.data.length > 0) {
       const data = raw.data.map((d: any) => {
-        if (typeof d === 'object') return { label: d.label ?? d.name ?? d.key ?? String(d.x ?? ''), value: Number(d.value ?? d.y ?? 0) };
+        if (typeof d === 'object') {
+          return {
+            ...d,
+            label: d.label ?? d.name ?? d.key ?? String(d.x ?? ''),
+            value: Number(d.value ?? d.y ?? 0),
+          };
+        }
         return { label: String(d[0] ?? ''), value: Number(d[1] ?? 0) };
       });
       return { kind: 'chart', data, max: raw.max ?? undefined, raw };
@@ -199,6 +351,9 @@ function normalizeApiResponse(raw: any): NormalizedResponse {
   }
 
   if (Array.isArray(raw)) {
+    if (isLikelyGeoPointArray(raw)) {
+      return { kind: 'raw', raw };
+    }
     if (raw.length > 0 && typeof raw[0] === 'object') {
       const columns = Object.keys(raw[0]);
       return { kind: 'table', columns, rows: raw, raw };
@@ -212,7 +367,7 @@ function normalizeApiResponse(raw: any): NormalizedResponse {
       if (typeof item === 'object') {
         const label = item.label ?? item.name ?? item.id ?? item.key ?? '';
         const value = Number(item.value ?? item.count ?? item.total ?? 0);
-        return { label: String(label), value };
+        return { ...item, label: String(label), value };
       }
       return { label: `Item ${index}`, value: Number(item) };
     });
@@ -224,6 +379,65 @@ function normalizeApiResponse(raw: any): NormalizedResponse {
   }
 
   return { kind: 'raw', raw };
+}
+
+export function normalizeTableResponse(raw: any): NormalizedTable {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    if (Array.isArray(raw.rows) && Array.isArray(raw.columns)) {
+      return { kind: 'table', columns: raw.columns.map(String), rows: raw.rows, raw };
+    }
+
+    const candidateArray =
+      (Array.isArray(raw.data) && raw.data) ||
+      (Array.isArray(raw.results) && raw.results) ||
+      (Array.isArray(raw.items) && raw.items) ||
+      null;
+
+    if (candidateArray) {
+      if (candidateArray.length > 0 && typeof candidateArray[0] === 'object' && !Array.isArray(candidateArray[0])) {
+        return { kind: 'table', columns: Object.keys(candidateArray[0]), rows: candidateArray, raw };
+      }
+      return { kind: 'table', columns: ['value'], rows: candidateArray.map((v: any) => ({ value: v })), raw };
+    }
+  }
+
+  if (Array.isArray(raw)) {
+    if (raw.length > 0 && typeof raw[0] === 'object' && !Array.isArray(raw[0])) {
+      return { kind: 'table', columns: Object.keys(raw[0]), rows: raw, raw };
+    }
+    return { kind: 'table', columns: ['value'], rows: raw.map((v: any) => ({ value: v })), raw };
+  }
+
+  return { kind: 'table', columns: ['value'], rows: [], raw };
+}
+
+/** API → text panel: stringifies objects so TEXT widgets show live data clearly */
+export function normalizeTextResponse(raw: any): { kind: 'text'; text: string; raw?: any } {
+  if (raw == null) return { kind: 'text', text: '', raw };
+  if (typeof raw === 'string') return { kind: 'text', text: raw, raw };
+  if (typeof raw === 'object') {
+    if (typeof raw.text === 'string') return { kind: 'text', text: raw.text, raw };
+    if (typeof raw.message === 'string') return { kind: 'text', text: raw.message, raw };
+    if (typeof raw.body === 'string') return { kind: 'text', text: raw.body, raw };
+    return { kind: 'text', text: JSON.stringify(raw, null, 2), raw };
+  }
+  return { kind: 'text', text: String(raw), raw };
+}
+
+function escapeHtmlText(unsafe: string): string {
+  return unsafe
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function normalizeCommaSeparatedNames(value: unknown): string {
+  return String(value ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .join(',');
 }
 
 /* -------------------- Presentational components -------------------- */
@@ -368,7 +582,7 @@ const KPIView: React.FC<{ k: NormalizedKPI; small?: boolean }> = ({ k, small = f
   );
 };
 
-const WidgetComponent: React.FC<{
+export const WidgetComponent: React.FC<{
   widget: Widget;
   dataSource?: DataSource;
   apiData?: any;
@@ -653,6 +867,101 @@ useEffect(() => {
     );
   };
 
+  // Keep table-related hooks at component top level to preserve hook order.
+  const tableNormalized =
+    normalized && normalized.kind === 'table'
+      ? normalized
+      : apiData?.normalized && apiData.normalized.kind === 'table'
+        ? apiData.normalized
+        : null;
+  const tableRows = React.useMemo<any[]>(() => {
+    if (tableNormalized && Array.isArray(tableNormalized.rows)) return tableNormalized.rows;
+    if (Array.isArray(apiData?.rows)) return apiData.rows;
+    if (Array.isArray(cfg.rows)) return cfg.rows;
+    return [];
+  }, [tableNormalized, apiData, cfg.rows]);
+
+  const tableColumns = React.useMemo<string[]>(() => {
+    // 1) Prefer explicit API columns when available (keeps server ordering).
+    if (tableNormalized && Array.isArray(tableNormalized.columns) && tableNormalized.columns.length > 0) {
+      return tableNormalized.columns.map(String);
+    }
+    if (Array.isArray(apiData?.columns) && apiData.columns.length > 0) {
+      return apiData.columns.map((c: any) => String(c));
+    }
+    if (Array.isArray(cfg.columns) && cfg.columns.length > 0) {
+      return cfg.columns.map((c: any) => String(c));
+    }
+
+    // 2) Otherwise derive all columns from every row (not only first row).
+    const ordered = new Set<string>();
+    tableRows.forEach((row: any) => {
+      if (row && typeof row === 'object' && !Array.isArray(row)) {
+        Object.keys(row).forEach((k) => ordered.add(k));
+      } else {
+        ordered.add('value');
+      }
+    });
+    return ordered.size > 0 ? Array.from(ordered) : ['Column'];
+  }, [tableNormalized, apiData, cfg.columns, tableRows]);
+
+  const renderTableCellValue = (row: any, column: string) => {
+    const directValue = row?.[column];
+    const caseInsensitiveKey =
+      directValue !== undefined
+        ? null
+        : Object.keys(row || {}).find((k) => k.toLowerCase() === column.toLowerCase()) ?? null;
+    const value = directValue !== undefined
+      ? directValue
+      : (caseInsensitiveKey ? row?.[caseInsensitiveKey] : undefined);
+
+    if (value === null || value === undefined) return '-';
+    if (typeof value === 'object') return JSON.stringify(value);
+    return String(value);
+  };
+  const [sortConfig, setSortConfig] = React.useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const rowsPerPage = 5;
+  const sortedRows = React.useMemo(() => {
+    if (!sortConfig) return tableRows;
+    return [...tableRows].sort((a, b) => {
+      const aValue = a[sortConfig.key];
+      const bValue = b[sortConfig.key];
+      if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [tableRows, sortConfig]);
+  const paginatedRows = React.useMemo(() => {
+    const start = (currentPage - 1) * rowsPerPage;
+    return sortedRows.slice(start, start + rowsPerPage);
+  }, [sortedRows, currentPage]);
+  const totalPages = Math.ceil(sortedRows.length / rowsPerPage);
+  const requestSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const [MapComponents, setMapComponents] = React.useState<any>(null);
+  React.useEffect(() => {
+    let mounted = true;
+    const loadMapComponents = async () => {
+      const { MapContainer, TileLayer, Marker, Popup } = await import('react-leaflet');
+      if (mounted) setMapComponents({ MapContainer, TileLayer, Marker, Popup });
+    };
+    loadMapComponents();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [tableRows.length]);
+
   const renderWidgetContent = () => {
     if (isLoading) {
       return (
@@ -671,8 +980,42 @@ useEffect(() => {
       );
     }
 
+    const panelVariant = inferPanelFormat(widget.visual_type, cfg);
+
     // KPI
     if (widget.visual_type === 'KPI') {
+      if (panelVariant === 'GAUGE' || panelVariant === 'PROGRESS') {
+        const raw = Number((normalized && normalized.kind === 'kpi' ? normalized.value : undefined) ?? apiData?.value ?? cfg.value ?? 0);
+        const percent = Math.max(0, Math.min(100, raw));
+        if (panelVariant === 'GAUGE') {
+          return (
+            <div className="p-4">
+              <h4 className="text-lg font-semibold">{widget.title}</h4>
+              <div className="mt-4 flex justify-center">
+                <div className="relative w-36 h-36 rounded-full" style={{ background: `conic-gradient(#2563eb ${percent * 3.6}deg, #e5e7eb 0deg)` }}>
+                  <div className="absolute inset-4 bg-white rounded-full flex items-center justify-center text-xl font-bold text-slate-700">
+                    {percent}%
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        }
+        return (
+          <div className="p-4">
+            <h4 className="text-lg font-semibold">{widget.title}</h4>
+            <div className="mt-4">
+              <div className="flex justify-between text-sm text-slate-600 mb-1">
+                <span>Progress</span>
+                <span>{percent}%</span>
+              </div>
+              <div className="h-3 rounded bg-slate-100 overflow-hidden">
+                <div className="h-full bg-blue-600 rounded transition-all" style={{ width: `${percent}%` }} />
+              </div>
+            </div>
+          </div>
+        );
+      }
       if (normalized && normalized.kind === 'kpi') {
         return (
           <div className="p-4">
@@ -704,46 +1047,49 @@ useEffect(() => {
     }
    // MAP widget rendering logic
 if (widget.visual_type === 'MAP') {
-  const [MapComponents, setMapComponents] = React.useState<any>(null);
+  const wrapped = apiData && typeof apiData === 'object' && !Array.isArray(apiData) && 'raw' in apiData;
+  const rawPayload = wrapped ? (apiData as any).raw : apiData;
 
-  React.useEffect(() => {
-    // Dynamically import react-leaflet components on the client side
-    const loadMapComponents = async () => {
-      const { MapContainer, TileLayer, Marker, Popup } = await import('react-leaflet');
-      setMapComponents({ MapContainer, TileLayer, Marker, Popup });
-    };
+  let locations: any[] = extractMapLocationRows(rawPayload);
 
-    loadMapComponents();
-  }, []);
-
-  let locations: any[] = [];
-
-  if (normalized?.kind === 'raw') {
-    const rawData = normalized.raw;
-
-    if (Array.isArray(rawData)) {
-      locations = rawData;
-    } else if (rawData && typeof rawData === 'object') {
-      if (Array.isArray(rawData.locations)) {
-        locations = rawData.locations;
-      } else if (Array.isArray(rawData.data)) {
-        locations = rawData.data;
-      } else if (Array.isArray(rawData.results)) {
-        locations = rawData.results;
-      }
-    }
+  if (!locations.length && normalized) {
+    locations = extractMapLocationRows((normalized as any).raw);
+  }
+  if (!locations.length && normalized?.kind === 'table' && Array.isArray(normalized.rows)) {
+    locations = extractMapLocationRows(normalized.rows);
+  }
+  if (!locations.length && normalized?.kind === 'chart' && Array.isArray((normalized as any).data)) {
+    locations = extractMapLocationRows((normalized as any).data);
   }
 
-  // Normalize keys and convert to numbers
   const validLocations = locations
-    .map(loc => ({
-      lat: Number(loc.lat ?? loc.latitude),
-      lng: Number(loc.lng ?? loc.longitude),
-      label: loc.label ?? loc.name ?? ''
-    }))
-    .filter(loc => !isNaN(loc.lat) && !isNaN(loc.lng));
+    .map(loc => {
+      if (loc?.geometry?.type === 'Point' && Array.isArray(loc.geometry.coordinates)) {
+        const [lng, lat] = loc.geometry.coordinates;
+        return {
+          lat: Number(lat),
+          lng: Number(lng),
+          label: loc.properties?.label ?? loc.properties?.name ?? loc.properties?.title ?? '',
+        };
+      }
+      const c = getGeoCoords(loc);
+      if (!c) return null;
+      return {
+        lat: c.lat,
+        lng: c.lng,
+        label: String(loc.label ?? loc.name ?? loc.title ?? ''),
+      };
+    })
+    .filter((loc): loc is { lat: number; lng: number; label: string } => loc !== null && !Number.isNaN(loc.lat) && !Number.isNaN(loc.lng));
 
   if (!validLocations.length) {
+    const rawPreview = (() => {
+      try {
+        return JSON.stringify(rawPayload, null, 2);
+      } catch {
+        return String(rawPayload ?? '');
+      }
+    })();
     return (
       <div className="p-4">
         <h4 className="text-lg font-semibold">{widget.title}</h4>
@@ -751,8 +1097,11 @@ if (widget.visual_type === 'MAP') {
           No valid location data available.
         </div>
         <div className="mt-2 text-xs text-gray-400">
-          Data should be array of objects with lat/lng numbers or numeric strings.
+          Expected examples: array of objects with lat/lng or latitude/longitude, coordinate tuple [lng,lat], or GeoJSON Point/FeatureCollection.
         </div>
+        <pre className="mt-3 max-h-40 overflow-auto text-[11px] leading-4 bg-slate-50 border border-slate-200 rounded p-2 text-slate-600">
+{rawPreview}
+        </pre>
       </div>
     );
   }
@@ -777,6 +1126,21 @@ if (widget.visual_type === 'MAP') {
           center={[validLocations[0].lat, validLocations[0].lng]} 
           zoom={10} 
           style={{ height: '300px', width: '100%' }}
+          whenReady={(event: any) => {
+            // Leaflet can initialize before the grid/tab width is final.
+            // Guard delayed invalidation to avoid calling after unmount.
+            const map = event?.target;
+            const safeInvalidate = () => {
+              if (!map || !map._container) return;
+              try {
+                map.invalidateSize();
+              } catch {
+                // Map may be detached during rapid tab/dashboard switches.
+              }
+            };
+            setTimeout(safeInvalidate, 0);
+            setTimeout(safeInvalidate, 250);
+          }}
         >
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -798,6 +1162,7 @@ if (widget.visual_type === 'MAP') {
       const chartNormalized = normalized && normalized.kind === 'chart' ? normalized : (apiData?.normalized && apiData.normalized.kind === 'chart' ? apiData.normalized : null);
       const chartData = chartNormalized ? chartNormalized.data : (apiData?.data ?? cfg.data ?? []);
       const maxValue = (chartNormalized && chartNormalized.max) ?? apiData?.max ?? cfg.max ?? (chartData.length ? Math.max(...chartData.map((x: any) => Number(x.value || 0))) : 100);
+      const effectiveChartType = ((cfg.chart_variant as ChartType | undefined) ?? widget.chart_type ?? 'BAR') as ChartType;
 
       if (!chartData || chartData.length === 0) {
         return (
@@ -810,9 +1175,33 @@ if (widget.visual_type === 'MAP') {
 
       const trendValue = cfg.trend ?? chartNormalized?.raw?.trend;
       const trendDirection = cfg.trend_direction ?? chartNormalized?.raw?.trend_direction;
+      const multiSeriesKeys = (() => {
+        const sample = chartData.find((it: any) => it && typeof it === 'object') || {};
+        const candidates = Object.keys(sample).filter((k) => !['label', 'name', 'x', 'y'].includes(k));
+        const numericCandidates = candidates.filter((k) => chartData.some((row: any) => Number.isFinite(Number(row?.[k]))));
+        if (Array.isArray(cfg.series_keys) && cfg.series_keys.length > 0) {
+          return cfg.series_keys.filter((k: string) => numericCandidates.includes(k));
+        }
+        return numericCandidates.length > 0 ? numericCandidates.slice(0, 4) : ['value'];
+      })();
+      const safeSeriesRows = chartData.map((item: any, i: number) => {
+        const label = String(item?.label ?? item?.name ?? `Item ${i + 1}`);
+        const series = multiSeriesKeys.map((k: string) => Math.max(0, Number(item?.[k] ?? 0)));
+        return { label, series, raw: item };
+      });
+      const multiSeriesMax = safeSeriesRows.length > 0
+        ? Math.max(
+            1,
+            ...safeSeriesRows.map((row: any) =>
+              multiSeriesKeys.length > 0
+                ? Math.max(...row.series, 0)
+                : Math.max(0, Number(row.raw?.value ?? 0))
+            )
+          )
+        : 1;
 
       /* ---------------- PIE ---------------- */
-      if (widget.chart_type === 'PIE') {
+      if (effectiveChartType === 'PIE' || effectiveChartType === 'DONUT') {
         const total = chartData.reduce((s: number, it: any) => s + Math.max(0, Number(it.value || 0)), 0);
         if (total <= 0) {
           return (
@@ -850,7 +1239,9 @@ if (widget.visual_type === 'MAP') {
                 aria-label={widget.title}
                 title={chartData.map((it: any, idx: number) => `${it.label}: ${it.value}`).join('\n')}
               >
-                <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-24 h-24 bg-white rounded-full" />
+                {effectiveChartType === 'DONUT' && (
+                  <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-24 h-24 bg-white rounded-full" />
+                )}
                 {chartCfg.pie?.center_label && (
                   <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none text-center text-sm text-gray-600">
                     {chartCfg.pie.center_label}
@@ -879,13 +1270,14 @@ if (widget.visual_type === 'MAP') {
       }
 
       /* ---------------- LINE ---------------- */
-      if (widget.chart_type === 'LINE') {
+      if (effectiveChartType === 'LINE' || effectiveChartType === 'AREA' || effectiveChartType === 'SCATTER') {
         const len = chartData.length;
         const points = chartData.map((item: any, i: number) => {
           const x = len === 1 ? 50 : (i / (len - 1)) * 100;
           const y = 100 - ((Number(item.value || 0) / Math.max(1, Number(maxValue))) * 100);
           return `${x},${y}`;
         }).join(' ');
+        const areaPath = `0,100 ${points} 100,100`;
 
         const ticks = Array.from({ length: yTicks }, (_, i) => {
           const v = Math.round((i / (yTicks - 1)) * Number(maxValue));
@@ -916,14 +1308,19 @@ if (widget.visual_type === 'MAP') {
               <div className="flex-1">
                 <svg viewBox="0 0 100 100" className="w-full h-48">
                   {showAxes && <line x1="0" y1="100" x2="100" y2="100" stroke="#e5e7eb" strokeWidth="0.5" />}
-                  <polyline
-                    fill="none"
-                    stroke={strokeColor}
-                    strokeWidth={lineStrokeWidth}
-                    points={points}
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                  />
+                  {effectiveChartType === 'AREA' && (
+                    <polygon points={areaPath} fill={strokeColor} fillOpacity={0.2} />
+                  )}
+                  {effectiveChartType !== 'SCATTER' && (
+                    <polyline
+                      fill="none"
+                      stroke={strokeColor}
+                      strokeWidth={lineStrokeWidth}
+                      points={points}
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                    />
+                  )}
                   {chartData.map((item: any, i: number) => {
                     const x = len === 1 ? 50 : (i / (len - 1)) * 100;
                     const y = 100 - ((Number(item.value || 0) / Math.max(1, Number(maxValue))) * 100);
@@ -945,6 +1342,157 @@ if (widget.visual_type === 'MAP') {
         const val = Math.round(((yTicks - 1 - i) / (yTicks - 1)) * Number(maxValue));
         return val;
       });
+
+      if (effectiveChartType === 'HORIZONTAL_BAR') {
+        return (
+          <div className="p-4" ref={widgetRef}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <h4 className="text-lg font-semibold">{widget.title}</h4>
+                {renderTrend(trendValue, trendDirection)}
+              </div>
+              {showLegend && chartCfg.legend_title && <div className="text-xs text-gray-500">{chartCfg.legend_title}</div>}
+            </div>
+            <div className="mt-4 space-y-2">
+              {chartData.map((item: any, index: number) => {
+                const rawVal = Number(item.value ?? 0);
+                const safeMax = (typeof maxValue === 'number' && maxValue > 0) ? Number(maxValue) : 1;
+                const pct = Math.max(2, Math.min(100, ((rawVal / safeMax) * 100) || 0));
+                const color = (chartCfg.series_colors && chartCfg.series_colors[index]) ? chartCfg.series_colors[index] : barColor;
+                return (
+                  <div key={index}>
+                    <div className="flex justify-between text-xs text-gray-600 mb-1">
+                      <span>{item.label}</span>
+                      <span>{item.value}</span>
+                    </div>
+                    <div className="h-3 rounded bg-slate-100 overflow-hidden">
+                      <div className="h-full rounded transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {dataSource && <div className="mt-2 text-xs text-gray-500">Source: {dataSource.name}</div>}
+          </div>
+        );
+      }
+
+      if (effectiveChartType === 'STACKED_BAR' && multiSeriesKeys.length >= 1) {
+        const stackedMax = Math.max(1, ...safeSeriesRows.map((r: any) => r.series.reduce((s: number, v: number) => s + v, 0)));
+        return (
+          <div className="p-4" ref={widgetRef}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <h4 className="text-lg font-semibold">{widget.title}</h4>
+                {renderTrend(trendValue, trendDirection)}
+              </div>
+            </div>
+            <div className="mt-3 flex-1 h-56 flex items-end space-x-2">
+              {safeSeriesRows.map((row: any, rowIndex: number) => (
+                <div key={rowIndex} className="flex-1 flex flex-col items-center h-full">
+                  <div className="w-full h-full flex items-end">
+                    <div className="w-full rounded-t overflow-hidden flex flex-col-reverse bg-slate-100" style={{ height: `${Math.max(2, (row.series.reduce((s: number, v: number) => s + v, 0) / stackedMax) * 100)}%` }}>
+                      {row.series.map((v: number, seriesIdx: number) => (
+                        <div
+                          key={seriesIdx}
+                          style={{
+                            height: `${Math.max(0, (v / Math.max(1, row.series.reduce((s: number, x: number) => s + x, 0))) * 100)}%`,
+                            backgroundColor: colors[seriesIdx % colors.length],
+                          }}
+                          title={`${multiSeriesKeys[seriesIdx]}: ${v}`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <span className="text-xs mt-1 truncate text-center" style={{ maxWidth: '100%' }}>{row.label}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-3 text-xs">
+              {multiSeriesKeys.map((k: string, i: number) => (
+                <div key={k} className="flex items-center gap-1">
+                  <span className="inline-block w-3 h-3 rounded" style={{ backgroundColor: colors[i % colors.length] }} />
+                  <span>{k}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      }
+
+      if (effectiveChartType === 'MULTI_SERIES_LINE' && multiSeriesKeys.length >= 1) {
+        const len = safeSeriesRows.length;
+        return (
+          <div className="p-4">
+            <div className="flex items-center">
+              <h4 className="text-lg font-semibold">{widget.title}</h4>
+              {renderTrend(trendValue, trendDirection)}
+            </div>
+            <div className="mt-3">
+              <svg viewBox="0 0 100 100" className="w-full h-56">
+                {multiSeriesKeys.map((k: string, si: number) => {
+                  const pts = safeSeriesRows.map((row: any, i: number) => {
+                    const x = len === 1 ? 50 : (i / (len - 1)) * 100;
+                    const y = 100 - ((Number(row.raw?.[k] ?? 0) / multiSeriesMax) * 100);
+                    return `${x},${y}`;
+                  }).join(' ');
+                  return (
+                    <g key={k}>
+                      <polyline fill="none" stroke={colors[si % colors.length]} strokeWidth={lineStrokeWidth} points={pts} />
+                    </g>
+                  );
+                })}
+              </svg>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-3 text-xs">
+              {multiSeriesKeys.map((k: string, i: number) => (
+                <div key={k} className="flex items-center gap-1">
+                  <span className="inline-block w-3 h-3 rounded" style={{ backgroundColor: colors[i % colors.length] }} />
+                  <span>{k}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      }
+
+      if (effectiveChartType === 'COMBO' && multiSeriesKeys.length >= 1) {
+        const len = safeSeriesRows.length;
+        const barKey = multiSeriesKeys[0];
+        const lineKey = multiSeriesKeys[1] ?? multiSeriesKeys[0];
+        return (
+          <div className="p-4">
+            <div className="flex items-center">
+              <h4 className="text-lg font-semibold">{widget.title}</h4>
+              {renderTrend(trendValue, trendDirection)}
+            </div>
+            <div className="mt-3">
+              <svg viewBox="0 0 100 100" className="w-full h-56">
+                {safeSeriesRows.map((row: any, i: number) => {
+                  const x = len === 1 ? 50 : (i / (len - 1)) * 100;
+                  const v = Number(row.raw?.[barKey] ?? row.raw?.value ?? 0);
+                  const y = 100 - ((v / multiSeriesMax) * 100);
+                  return <rect key={`b-${i}`} x={Math.max(0, x - 3)} y={y} width={6} height={Math.max(2, 100 - y)} fill={colors[0]} opacity={0.8} />;
+                })}
+                <polyline
+                  fill="none"
+                  stroke={colors[1] ?? '#2563eb'}
+                  strokeWidth={lineStrokeWidth}
+                  points={safeSeriesRows.map((row: any, i: number) => {
+                    const x = len === 1 ? 50 : (i / (len - 1)) * 100;
+                    const y = 100 - ((Number(row.raw?.[lineKey] ?? row.raw?.value ?? 0) / multiSeriesMax) * 100);
+                    return `${x},${y}`;
+                  }).join(' ')}
+                />
+              </svg>
+            </div>
+            <div className="mt-2 text-xs text-gray-600 flex gap-4">
+              <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-3 rounded" style={{ backgroundColor: colors[0] }} />{barKey} (bar)</span>
+              <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-3 rounded" style={{ backgroundColor: colors[1] ?? '#2563eb' }} />{lineKey} (line)</span>
+            </div>
+          </div>
+        );
+      }
 
       return (
         <div className="p-4" ref={widgetRef}>
@@ -1012,40 +1560,25 @@ if (widget.visual_type === 'MAP') {
 
     // Table
     if (widget.visual_type === 'TABLE') {
-      const t = normalized && normalized.kind === 'table' ? normalized : (apiData?.normalized && apiData.normalized.kind === 'table' ? apiData.normalized : null);
-      const tableColumns = t ? t.columns : (apiData?.columns ?? cfg.columns ?? ['Column']);
-      const tableRows = t ? t.rows : (apiData?.rows ?? cfg.rows ?? []);
-
-      const [sortConfig, setSortConfig] = React.useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
-      const [currentPage, setCurrentPage] = React.useState(1);
-      const rowsPerPage = 5;
-
-      const sortedRows = React.useMemo(() => {
-        if (!sortConfig) return tableRows;
-        return [...tableRows].sort((a, b) => {
-          const aValue = a[sortConfig.key];
-          const bValue = b[sortConfig.key];
-          if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
-          if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
-          return 0;
-        });
-      }, [tableRows, sortConfig]);
-
-      const paginatedRows = React.useMemo(() => {
-        const start = (currentPage - 1) * rowsPerPage;
-        return sortedRows.slice(start, start + rowsPerPage);
-      }, [sortedRows, currentPage]);
-
-      const totalPages = Math.ceil(sortedRows.length / rowsPerPage);
-
-      const requestSort = (key: string) => {
-        let direction: 'asc' | 'desc' = 'asc';
-        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
-          direction = 'desc';
-        }
-        setSortConfig({ key, direction });
-      };
-
+      if (panelVariant === 'LIST') {
+        return (
+          <div className="p-4">
+            <h4 className="text-lg font-semibold">{widget.title}</h4>
+            <div className="mt-3 space-y-2">
+              {(tableRows || []).map((r: any, i: number) => (
+                <div key={i} className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                  {tableColumns.slice(0, 3).map((c: string, idx: number) => (
+                    <div key={c} className={idx === 0 ? 'font-medium text-slate-800' : 'text-slate-600'}>
+                      {String(renderTableCellValue(r, c) ?? '')}
+                    </div>
+                  ))}
+                </div>
+              ))}
+              {(!tableRows || tableRows.length === 0) && <div className="text-sm text-slate-500">No list data available</div>}
+            </div>
+          </div>
+        );
+      }
       return (
         <div className="p-4">
           <h4 className="text-lg font-semibold">{widget.title}</h4>
@@ -1081,7 +1614,7 @@ if (widget.visual_type === 'MAP') {
                     <tr key={idx}>
                       {tableColumns.map((c: string, ci: number) => (
                         <td key={ci} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {r[c] ?? r[c.toLowerCase()] ?? '-'}
+                          {renderTableCellValue(r, c)}
                         </td>
                       ))}
                     </tr>
@@ -1118,15 +1651,39 @@ if (widget.visual_type === 'MAP') {
       );
     }
 
-    // Text
+    // Text — static body in config_json.text (or body); optional data source fills when static is empty
     if (widget.visual_type === 'TEXT') {
-      const textContent = normalized && normalized.kind === 'text' ? (normalized as { text: string }).text : (apiData?.text ?? cfg.text ?? '');
+      const staticBody = (cfg.text ?? cfg.body ?? '') as string;
+      const apiTextNormalized =
+        normalized && normalized.kind === 'text'
+          ? (normalized as { text: string }).text
+          : apiData?.normalized && (apiData.normalized as NormalizedResponse).kind === 'text'
+            ? (apiData.normalized as { text: string }).text
+            : '';
+      const apiFallback =
+        apiData?.raw !== undefined && apiData?.raw !== null
+          ? typeof apiData.raw === 'string'
+            ? apiData.raw
+            : JSON.stringify(apiData.raw, null, 2)
+          : '';
 
-      if (!textContent) {
+      const textContent =
+        String(staticBody).trim() !== ''
+          ? staticBody
+          : apiTextNormalized !== ''
+            ? apiTextNormalized
+            : apiFallback;
+
+      const renderHtml = Boolean(cfg.render_as_html);
+      const textClasses = panelVariant === 'ALERT' ? 'rounded border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2' : '';
+
+      if (!textContent || String(textContent).trim() === '') {
         return (
           <div className="p-4 text-gray-500 italic">
             <h4 className="text-lg font-semibold">{widget.title}</h4>
-            <div className="mt-2">No text content available</div>
+            <div className="mt-2 text-sm">
+              No text content yet. Add a body in the widget editor, or attach a data source.
+            </div>
           </div>
         );
       }
@@ -1134,26 +1691,68 @@ if (widget.visual_type === 'MAP') {
       return (
         <div className="p-4">
           <h4 className="text-lg font-semibold">{widget.title}</h4>
-          <div
-            className="mt-2 text-gray-700 whitespace-pre-wrap"
-            dangerouslySetInnerHTML={{ __html: textContent }}
-          />
+          {renderHtml ? (
+            <div
+              className={`mt-2 text-gray-700 text-sm ${textClasses}`}
+              dangerouslySetInnerHTML={{ __html: textContent }}
+            />
+          ) : (
+            <div className={`mt-2 text-gray-700 whitespace-pre-wrap text-sm ${textClasses}`}>
+              {escapeHtmlText(textContent)}
+            </div>
+          )}
         </div>
       );
     }
 
-    // Custom
+    // Custom — config_json.custom plus optional data source payload
     if (widget.visual_type === 'CUSTOM') {
-      return (
-        <div className="p-4">
-          <h4 className="text-lg font-semibold">{widget.title}</h4>
-          <div className="mt-2 text-gray-600 italic">
-            Custom widget content rendering is not implemented yet.
+      if (panelVariant === 'TIMELINE') {
+        const rows = Array.isArray(apiData?.data) ? apiData.data : (Array.isArray(apiData) ? apiData : []);
+        return (
+          <div className="p-4">
+            <h4 className="text-lg font-semibold">{widget.title}</h4>
+            <div className="mt-3 space-y-3">
+              {rows.slice(0, 20).map((item: any, idx: number) => (
+                <div key={idx} className="relative pl-5">
+                  <span className="absolute left-0 top-1.5 w-2 h-2 rounded-full bg-blue-600" />
+                  <div className="text-sm font-medium text-slate-800">{String(item?.title ?? item?.label ?? item?.name ?? `Event ${idx + 1}`)}</div>
+                  <div className="text-xs text-slate-500">{String(item?.date ?? item?.time ?? item?.timestamp ?? '')}</div>
+                </div>
+              ))}
+              {rows.length === 0 && <div className="text-sm text-slate-500">No timeline data available</div>}
+            </div>
           </div>
-          <div className="mt-4">
-            <pre className="bg-gray-100 p-2 rounded max-h-48 overflow-auto">
-              {JSON.stringify(apiData ?? cfg, null, 2)}
-            </pre>
+        );
+      }
+      const customPayload = cfg.custom ?? {};
+      const hasApi = apiData?.raw !== undefined && apiData?.raw !== null;
+
+      return (
+        <div className="p-4 flex flex-col h-full min-h-0">
+          <h4 className="text-lg font-semibold">{widget.title}</h4>
+          <div className="mt-3 flex-1 min-h-0 flex flex-col gap-3">
+            <div>
+              <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Configuration</div>
+              <pre className="bg-gray-50 border border-gray-200 p-3 rounded text-xs overflow-auto max-h-40">
+                {JSON.stringify(customPayload, null, 2)}
+              </pre>
+            </div>
+            {hasApi && (
+              <div>
+                <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Data source</div>
+                <pre className="bg-gray-50 border border-gray-200 p-3 rounded text-xs overflow-auto max-h-48">
+                  {typeof apiData.raw === 'string'
+                    ? apiData.raw
+                    : JSON.stringify(apiData.raw, null, 2)}
+                </pre>
+              </div>
+            )}
+            {!hasApi && (
+              <p className="text-xs text-gray-500">
+                Optional: attach a data source to merge live API data with the configuration above.
+              </p>
+            )}
           </div>
         </div>
       );
@@ -1337,7 +1936,7 @@ const WidgetModal: React.FC<{
   setWidgetForm: React.Dispatch<React.SetStateAction<Partial<Widget>>>;
   dataSources: DataSource[];
   tabNameOptions: string[];
-  saveWidget: () => Promise<void>;
+  saveWidget: (merge?: Partial<Widget>) => Promise<void>;
   setShowWidgetModal: React.Dispatch<React.SetStateAction<boolean>>;
   fetchWidgetData: (widget: Widget) => Promise<void>;
   existingWidgets: Widget[];
@@ -1355,6 +1954,11 @@ const WidgetModal: React.FC<{
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [customJsonEditor, setCustomJsonEditor] = React.useState('{}');
+
+  React.useEffect(() => {
+    setCustomJsonEditor(JSON.stringify(widgetForm.config_json?.custom ?? {}, null, 2));
+  }, [widgetForm.id, widgetForm.visual_type]);
 
   const clearFieldError = (field: string) => {
     setFieldErrors(prev => {
@@ -1370,9 +1974,6 @@ const WidgetModal: React.FC<{
 
     if (!widgetForm.title || !widgetForm.title.trim()) {
       errors.title = 'Widget title is required';
-    }
-    if (!(widgetForm.tabname || '').toString().trim()) {
-      errors.tab_name = 'Tab Name is required';
     }
     if (widgetForm.visual_type === 'CHART' && !widgetForm.chart_type) {
       errors.chart_type = 'Chart type is required for chart widgets';
@@ -1395,7 +1996,25 @@ const WidgetModal: React.FC<{
   };
 
   const handleSaveWidget = async () => {
+    if (widgetForm.visual_type === 'CUSTOM') {
+      try {
+        JSON.parse(customJsonEditor || '{}');
+      } catch {
+        setFieldErrors(prev => ({ ...prev, custom_json: 'Invalid JSON in custom payload' }));
+        return;
+      }
+    }
     if (!validateWidgetForm()) return;
+    if (widgetForm.visual_type === 'CUSTOM') {
+      const customObj = JSON.parse(customJsonEditor || '{}');
+      await saveWidget({
+        config_json: {
+          ...(widgetForm.config_json || {}),
+          custom: customObj,
+        },
+      });
+      return;
+    }
     await saveWidget();
   };
 
@@ -1556,30 +2175,61 @@ const WidgetModal: React.FC<{
             clearFieldError('tab_name');
           }}
         >
-          <option value="">Select Tab</option>
-          {tabNameOptions.map((tab, idx) => (
-            <option key={`${tab}-${idx}`} value={tab}>
-              {tab}
-            </option>
-          ))}
+          <option value="">Select Panel</option>
+          {tabNameOptions.length > 0 &&
+            tabNameOptions.map((tab, idx) => (
+              <option key={`${tab}-${idx}`} value={tab}>
+                {tab}
+              </option>
+            ))}
         </select>
-        {fieldErrors.tab_name && <p className="text-sm text-red-600 mb-3">{fieldErrors.tab_name}</p>}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-1">
           <div>
-            <label className="block mb-1 font-medium text-slate-700">Visual Type</label>
+            <label className="block mb-1 font-medium text-slate-700">Panel Format</label>
             <select
               className="w-full border border-slate-300 rounded-lg px-3 py-2 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-200"
-              value={widgetForm.visual_type ?? 'CHART'}
-              onChange={e => setWidgetForm(prev => ({ ...prev, visual_type: e.target.value as VisualType }))}
+              value={inferPanelFormat(widgetForm.visual_type, widgetForm.config_json || null)}
+              onChange={e => {
+                const { visualType, panelVariant } = resolvePanelFormatSelection(e.target.value);
+                setWidgetForm(prev => {
+                  const nextCfg: Record<string, any> = { ...(prev.config_json || {}) };
+                  if (panelVariant) nextCfg.panel_variant = panelVariant;
+                  else delete nextCfg.panel_variant;
+                  if (visualType === 'MAP' || visualType === 'CHART') {
+                    delete nextCfg.panel_variant;
+                  }
+                  return {
+                    ...prev,
+                    visual_type: visualType,
+                    config_json: nextCfg,
+                  };
+                });
+              }}
             >
-              <option value="KPI">KPI</option>
-              <option value="CHART">CHART</option>
-              <option value="TABLE">TABLE</option>
-              <option value="TEXT">TEXT</option>
-              <option value="CUSTOM">CUSTOM</option>
-              <option value="MAP">MAP</option>
+              <optgroup label="Metrics">
+                <option value="KPI">KPI</option>
+                <option value="GAUGE">Gauge</option>
+                <option value="PROGRESS">Progress</option>
+              </optgroup>
+              <optgroup label="Charts">
+                <option value="CHART">Chart</option>
+              </optgroup>
+              <optgroup label="Data Views">
+                <option value="TABLE">Table</option>
+                <option value="LIST">List</option>
+                <option value="TIMELINE">Timeline</option>
+              </optgroup>
+              <optgroup label="Text & Custom">
+                <option value="TEXT">Text</option>
+                <option value="ALERT">Alert Text</option>
+                <option value="CUSTOM">Custom</option>
+              </optgroup>
+              <optgroup label="Geo">
+                <option value="MAP">Map</option>
+              </optgroup>
             </select>
+            <p className="text-xs text-slate-500 -mt-2 mb-2">Formats are mapped to core widget types so backend compatibility remains intact.</p>
           </div>
 
           {widgetForm.visual_type === 'CHART' && (
@@ -1589,15 +2239,31 @@ const WidgetModal: React.FC<{
                 className={`w-full border rounded-lg px-3 py-2 mb-1 focus:outline-none focus:ring-2 ${
                   fieldErrors.chart_type ? 'border-red-400 focus:ring-red-100' : 'border-slate-300 focus:ring-blue-200'
                 }`}
-                value={widgetForm.chart_type ?? 'BAR'}
+                value={(widgetForm.config_json?.chart_variant as ChartType) ?? widgetForm.chart_type ?? 'BAR'}
                 onChange={e => {
-                  setWidgetForm(prev => ({ ...prev, chart_type: e.target.value as ChartType }));
+                  const selected = e.target.value as ChartType;
+                  const canonical = selected === 'DONUT'
+                    ? 'PIE'
+                    : selected === 'AREA' || selected === 'SCATTER' || selected === 'MULTI_SERIES_LINE'
+                      ? 'LINE'
+                      : selected === 'HORIZONTAL_BAR' || selected === 'STACKED_BAR' || selected === 'COMBO'
+                        ? 'BAR'
+                        : selected;
+                  setWidgetForm(prev => ({
+                    ...prev,
+                    chart_type: canonical,
+                    config_json: { ...(prev.config_json || {}), chart_variant: selected },
+                  }));
                   clearFieldError('chart_type');
                 }}
               >
-                <option value="BAR">Bar Chart</option>
-                <option value="PIE">Pie Chart</option>
-                <option value="LINE">Line Chart</option>
+                {Array.from(new Set(CHART_TYPE_OPTIONS.map(opt => opt.group))).map(group => (
+                  <optgroup key={group} label={group}>
+                    {CHART_TYPE_OPTIONS.filter(opt => opt.group === group).map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </optgroup>
+                ))}
               </select>
               {fieldErrors.chart_type && <p className="text-sm text-red-600 mb-2">{fieldErrors.chart_type}</p>}
             </div>
@@ -1634,6 +2300,53 @@ const WidgetModal: React.FC<{
               onChange={e => updateConfigJson('description', e.target.value)}
               placeholder="e.g., Monthly Sales"
             />
+          </div>
+        )}
+
+        {widgetForm.visual_type === 'TEXT' && (
+          <div className="mb-4 p-4 bg-amber-50/80 border border-amber-100 rounded-xl">
+            <h4 className="font-semibold text-slate-800 mb-3">Text content</h4>
+            <label className="block mb-1 font-medium text-slate-700">Body</label>
+            <textarea
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 min-h-[120px] text-sm focus:outline-none focus:ring-2 focus:ring-amber-200"
+              value={widgetForm.config_json?.text ?? ''}
+              onChange={e => updateConfigJson('text', e.target.value)}
+              placeholder="Static text or HTML (see option below). If empty, a data source response is shown when configured."
+            />
+            <label className="flex items-center gap-2 mt-3 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={Boolean(widgetForm.config_json?.render_as_html)}
+                onChange={e => updateConfigJson('render_as_html', e.target.checked)}
+              />
+              Render body as HTML (otherwise plain text is escaped for safety)
+            </label>
+            <p className="text-xs text-slate-500 mt-2">
+              Static body wins when it is non-empty. With only a data source, the API response is formatted as text (JSON for objects).
+            </p>
+          </div>
+        )}
+
+        {widgetForm.visual_type === 'CUSTOM' && (
+          <div className="mb-4 p-4 bg-violet-50/80 border border-violet-100 rounded-xl">
+            <h4 className="font-semibold text-slate-800 mb-3">Custom configuration (JSON)</h4>
+            <textarea
+              className={`w-full border rounded-lg px-3 py-2 min-h-[140px] font-mono text-xs focus:outline-none focus:ring-2 ${
+                fieldErrors.custom_json ? 'border-red-400 focus:ring-red-100' : 'border-slate-300 focus:ring-violet-200'
+              }`}
+              value={customJsonEditor}
+              onChange={e => {
+                setCustomJsonEditor(e.target.value);
+                clearFieldError('custom_json');
+              }}
+              spellCheck={false}
+            />
+            {fieldErrors.custom_json && (
+              <p className="text-sm text-red-600 mt-1">{fieldErrors.custom_json}</p>
+            )}
+            <p className="text-xs text-slate-500 mt-2">
+              Stored in <code className="text-xs">config_json.custom</code>. If a data source is set, its response appears together with this payload in the widget.
+            </p>
           </div>
         )}
 
@@ -1798,7 +2511,7 @@ const WidgetModal: React.FC<{
 const DataSourceModal: React.FC<{
   dataSourceForm: Partial<DataSource>;
   setDataSourceForm: React.Dispatch<React.SetStateAction<Partial<DataSource>>>;
-  saveDataSource: () => Promise<void>;
+  saveDataSource: (formData: Partial<DataSource>) => Promise<void>;
   setShowDataSourceModal: React.Dispatch<React.SetStateAction<boolean>>;
 }> = ({
   dataSourceForm,
@@ -1938,8 +2651,8 @@ const applyJsonToForm = () => {
   const isStatic = dataSourceForm.source_type === 'STATIC';
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-30 flex justify-center items-start z-50 pt-12">
-      <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[80vh] overflow-y-auto shadow-lg">
+    <div className="fixed inset-0 bg-slate-900/55 backdrop-blur-sm flex justify-center items-start z-50 pt-10 px-4">
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 w-full max-w-5xl max-h-[86vh] overflow-y-auto shadow-2xl">
         <div className="flex justify-between items-start mb-4">
           <h2 className="text-xl font-semibold">
             {dataSourceForm.id ? 'Edit Data Source' : 'Create Data Source'}
@@ -1953,6 +2666,10 @@ const applyJsonToForm = () => {
           </button>
         </div>
 
+        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 mb-4">
+        <h3 className="text-sm font-semibold text-slate-800 mb-3">Basic Configuration</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
         <label className="block mb-1 font-medium">
           Name <span className="text-red-500">*</span>
         </label>
@@ -1980,7 +2697,9 @@ const applyJsonToForm = () => {
         {fieldErrors.name && (
           <p className="text-xs text-red-600 mb-2">{fieldErrors.name}</p>
         )}
+        </div>
 
+        <div>
         <label className="block mb-1 font-medium">Source Type</label>
         <select
           className="w-full border border-gray-300 rounded px-3 py-2 mb-1 text-sm"
@@ -2005,7 +2724,9 @@ const applyJsonToForm = () => {
           {isStatic &&
             'Store static JSON directly in this data source. Widgets will read from this JSON instead of calling an API.'}
         </p>
+        </div>
 
+        <div>
         <label className="block mb-1 font-medium">
           Endpoint URL {isApi && <span className="text-red-500">*</span>}
         </label>
@@ -2039,7 +2760,9 @@ const applyJsonToForm = () => {
         {fieldErrors.endpoint_url && (
           <p className="text-xs text-red-600 mb-2">{fieldErrors.endpoint_url}</p>
         )}
+        </div>
 
+        <div>
         <label className="block mb-1 font-medium">HTTP Method</label>
         <select
           className="w-full border border-gray-300 rounded px-3 py-2 mb-3 text-sm"
@@ -2051,7 +2774,9 @@ const applyJsonToForm = () => {
           <option value="GET">GET</option>
           <option value="POST">POST</option>
         </select>
+        </div>
 
+        <div>
         <label className="block mb-1 font-medium">Cached</label>
         <select
           className="w-full border border-gray-300 rounded px-3 py-2 mb-1 text-sm"
@@ -2065,7 +2790,9 @@ const applyJsonToForm = () => {
           Enable caching if the response does not change often. Widgets will reuse cached data
           within the TTL below.
         </p>
+        </div>
 
+        <div>
         <label className="block mb-1 font-medium text-sm">Cache TTL (sec)</label>
         <input
           type="number"
@@ -2088,8 +2815,14 @@ const applyJsonToForm = () => {
         {fieldErrors.cache_ttl_sec && (
           <p className="text-xs text-red-600 mb-2">{fieldErrors.cache_ttl_sec}</p>
         )}
+        </div>
+        </div>
+        </div>
 
-        <hr className="my-3" />
+        <div className="rounded-xl border border-slate-200 p-4 mb-3">
+        <h3 className="text-sm font-semibold text-slate-800 mb-3">Request / Payload JSON</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
 
         <label className="block mb-1 font-medium text-sm">Request Headers (JSON)</label>
         <p className="text-xs text-gray-500 mb-1">
@@ -2112,7 +2845,9 @@ const applyJsonToForm = () => {
         {fieldErrors.request_headers_json && (
           <p className="text-xs text-red-600 mb-2">{fieldErrors.request_headers_json}</p>
         )}
+        </div>
 
+        <div>
         <label className="block mb-1 font-medium text-sm">Query Parameters (JSON)</label>
         <p className="text-xs text-gray-500 mb-1">
           Optional. Will be appended to the URL query string.
@@ -2134,6 +2869,8 @@ const applyJsonToForm = () => {
         {fieldErrors.request_query_params_json && (
           <p className="text-xs text-red-600 mb-2">{fieldErrors.request_query_params_json}</p>
         )}
+        </div>
+        </div>
 
         <label className="block mb-1 font-medium text-sm">
           {isStatic ? 'Static JSON Data' : 'Request Body (JSON)'}
@@ -2166,8 +2903,9 @@ const applyJsonToForm = () => {
         {fieldErrors.request_body_json && (
           <p className="text-xs text-red-600 mb-2">{fieldErrors.request_body_json}</p>
         )}
+        </div>
 
-        <div className="flex justify-end gap-2 mt-4">
+        <div className="flex justify-end gap-2 mt-5 border-t border-slate-200 pt-4">
           <button
             className="px-4 py-2 rounded bg-gray-200 text-sm"
             onClick={() => setShowDataSourceModal(false)}
@@ -2210,6 +2948,8 @@ const DashboardManager: React.FC = () => {
   const [contextMenus, setContextMenus] = useState<any[]>([]);
 const [widgetContextMenuAssignments, setWidgetContextMenuAssignments] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [activeWidgetTabName, setActiveWidgetTabName] = useState<string>('');
+  const [selectedWidgetIds, setSelectedWidgetIds] = useState<number[]>([]);
 
   // NEW: Drag and drop state
   const [draggedWidget, setDraggedWidget] = useState<Widget | null>(null);
@@ -2232,6 +2972,18 @@ const [widgetContextMenuAssignments, setWidgetContextMenuAssignments] = useState
         .filter(Boolean)
     )
   );
+
+  const getWidgetTabName = (w: Widget) =>
+    (w.tabname || (w.config_json?.tab_name as string) || '').trim();
+  const getWidgetNumericId = (w: Widget): number | null => {
+    const parsed = Number(w.id);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const visibleWidgetsForActiveTab =
+    activeWidgetTabName
+      ? widgets.filter((w) => getWidgetTabName(w) === activeWidgetTabName)
+      : widgets;
 
 
   React.useEffect(() => {
@@ -2267,12 +3019,27 @@ const [widgetContextMenuAssignments, setWidgetContextMenuAssignments] = useState
   }, [selectedDashboard?.id]);
 
   useEffect(() => {
+    if (tabNameOptions.length === 0) {
+      setActiveWidgetTabName('');
+      return;
+    }
+    setActiveWidgetTabName((prev) => (prev && tabNameOptions.includes(prev) ? prev : tabNameOptions[0]));
+  }, [selectedDashboard?.id, selectedDashboard?.tab_name, widgets.length]);
+
+  useEffect(() => {
     widgets.forEach(widget => {
       if (widget.data_source_id && widget.id) {
         fetchWidgetData(widget);
       }
     });
   }, [widgets, dataSources]);
+
+  useEffect(() => {
+    // Drop stale selections when list refreshes/changes.
+    setSelectedWidgetIds(prev =>
+      prev.filter(id => widgets.some(w => getWidgetNumericId(w) === id))
+    );
+  }, [widgets]);
 
   useEffect(() => {
     const timers: Record<number, NodeJS.Timeout> = {};
@@ -2374,7 +3141,14 @@ console.log(dataSource.source_type);
 
     if (!response) throw new Error('Empty response from data source');
 
-    const normalized = normalizeApiResponse(response);
+    let normalized: NormalizedResponse;
+    if (widget.visual_type === 'TABLE') {
+      normalized = normalizeTableResponse(response);
+    } else if (widget.visual_type === 'TEXT') {
+      normalized = normalizeTextResponse(response);
+    } else {
+      normalized = normalizeApiResponse(response);
+    }
 
     setWidgetApiData(prev => ({
       ...prev,
@@ -2391,43 +3165,122 @@ console.log(dataSource.source_type);
   }
 }
 
+  const persistWidgetLayout = async (item: { id: number; x: number; y: number; w: number; h: number }) => {
+    try {
+      await apiFetch(`/widgets/${item.id}/layout`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          position_row: Number(item.y),
+          position_col: Number(item.x),
+          row_span: Math.max(1, Number(item.h)),
+          col_span: Math.max(1, Number(item.w)),
+        }),
+        headers: { 'Content-Type': 'application/json', 'X-User-Id': '1' },
+      });
+    } catch (e: any) {
+      if ((e?.message || '').toLowerCase().includes('widget not found')) return;
+      console.error(`Failed to save widget ${item.id} position/size`, e);
+    }
+  };
+
   const onLayoutChange = async (newLayout: any[]) => {
     setLayout(newLayout);
 
-    setWidgets(prevWidgets => {
-      const updatedWidgets = prevWidgets.map(w => {
-        const layoutItem = newLayout.find(item => item.i === w.id!.toString());
+    const changedForPersist: Array<{
+      id: number;
+      position_row: number;
+      position_col: number;
+      row_span: number;
+      col_span: number;
+    }> = [];
+
+    setWidgets((prevWidgets) =>
+      prevWidgets.map((w) => {
+        const wid = getWidgetNumericId(w);
+        if (wid === null) return w;
+        const layoutItem = newLayout.find((item) => item.i === String(wid));
         if (!layoutItem) return w;
+
+        const nextPositionRow = Number(layoutItem.y);
+        const nextPositionCol = Number(layoutItem.x);
+        const nextRowSpan = Number(layoutItem.h);
+        const nextColSpan = Number(layoutItem.w);
+
+        const changed =
+          Number(w.position_row) !== nextPositionRow ||
+          Number(w.position_col) !== nextPositionCol ||
+          Number(w.row_span) !== nextRowSpan ||
+          Number(w.col_span) !== nextColSpan;
+
+        if (!changed) return w;
+
+        changedForPersist.push({
+          id: wid,
+          position_row: nextPositionRow,
+          position_col: nextPositionCol,
+          row_span: nextRowSpan,
+          col_span: nextColSpan,
+        });
+
         return {
           ...w,
-          position_col: layoutItem.x,
-          position_row: layoutItem.y,
-          col_span: layoutItem.w,
-          row_span: layoutItem.h,
+          position_col: nextPositionCol,
+          position_row: nextPositionRow,
+          col_span: nextColSpan,
+          row_span: nextRowSpan,
         };
-      });
+      })
+    );
 
-      updatedWidgets.forEach(async (w) => {
-        if (w.id) {
-          try {
-            await apiFetch(`/widgets/${w.id}`, {
-              method: 'PUT',
-              body: JSON.stringify({
-                position_row: w.position_row,
-                position_col: w.position_col,
-                row_span: w.row_span,
-                col_span: w.col_span,
-              }),
-              headers: { 'Content-Type': 'application/json', 'X-User-Id': '1' },
-            });
-          } catch (e) {
-            console.error(`Failed to save widget ${w.id} position/size`, e);
-          }
-        }
-      });
+    if (changedForPersist.length === 0) return;
 
-      return updatedWidgets;
-    });
+    await Promise.all(changedForPersist.map((item) => persistWidgetLayout({
+      id: item.id,
+      x: item.position_col,
+      y: item.position_row,
+      w: item.col_span,
+      h: item.row_span,
+    })));
+  };
+
+  const onWidgetResizeStop = async (_layout: any[], _oldItem: any, newItem: any) => {
+    const id = Number(newItem?.i);
+    if (!Number.isFinite(id)) return;
+
+    setWidgets((prev) =>
+      prev.map((w) => {
+        const wid = getWidgetNumericId(w);
+        if (wid !== id) return w;
+        return {
+          ...w,
+          position_col: Number(newItem.x),
+          position_row: Number(newItem.y),
+          col_span: Math.max(1, Number(newItem.w)),
+          row_span: Math.max(1, Number(newItem.h)),
+        };
+      })
+    );
+
+    await persistWidgetLayout({ id, x: Number(newItem.x), y: Number(newItem.y), w: Number(newItem.w), h: Number(newItem.h) });
+  };
+
+  const onWidgetDragStop = async (_layout: any[], _oldItem: any, newItem: any) => {
+    const id = Number(newItem?.i);
+    if (!Number.isFinite(id)) return;
+
+    setWidgets((prev) =>
+      prev.map((w) => {
+        const wid = getWidgetNumericId(w);
+        if (wid !== id) return w;
+        return {
+          ...w,
+          position_col: Number(newItem.x),
+          position_row: Number(newItem.y),
+        };
+      })
+    );
+
+    await persistWidgetLayout({ id, x: Number(newItem.x), y: Number(newItem.y), w: Number(newItem.w), h: Number(newItem.h) });
   };
 
   async function loadDashboards() {
@@ -2688,13 +3541,14 @@ async function loadDashboardFilterMappings() {
       setDashboardFieldErrors({ name: 'Dashboard name is required' });
       return;
     }
-    const normalizedTabName = (dashboardForm.tab_name ?? '')
-      .split(',')
-      .map((tab) => tab.trim())
-      .filter(Boolean)
-      .join(',');
+    const normalizedTabName = normalizeCommaSeparatedNames(dashboardForm.tab_name);
     const payload: Partial<Dashboard> = {
-      ...dashboardForm,
+      name: String(dashboardForm.name ?? '').trim(),
+      description: dashboardForm.description ?? '',
+      type: dashboardForm.type === 'BASIC' ? 'BASIC' : 'STANDARD',
+      owner_user_id: dashboardForm.owner_user_id ?? 1,
+      is_default: Boolean(dashboardForm.is_default),
+      is_active: dashboardForm.is_active ?? true,
       tab_name: normalizedTabName,
       page_name: '',
     };
@@ -2761,9 +3615,9 @@ async function loadDashboardFilterMappings() {
       is_visible: true,
       sort_order: 0,
       title: '',
-      tabname: tabNameOptions[0] ?? '',
+      tabname: activeWidgetTabName || tabNameOptions[0] || '',
       config_json: {
-        tab_name: tabNameOptions[0] ?? '',
+        tab_name: activeWidgetTabName || tabNameOptions[0] || '',
       },
     });
     setShowWidgetModal(true);
@@ -2775,43 +3629,109 @@ async function loadDashboardFilterMappings() {
     setShowWidgetModal(true);
   }
 
-  async function saveWidget() {
+  async function saveWidget(merge?: Partial<Widget>) {
   setError(null);
   try {
+    const form: Partial<Widget> = merge ? { ...widgetForm, ...merge } : widgetForm;
+
     const effectiveDashboardId =
-      widgetForm.dashboard_id ?? selectedDashboard?.id;
+      form.dashboard_id ?? selectedDashboard?.id;
 
     if (!effectiveDashboardId) {
       throw new Error('Widget must be linked to a dashboard');
     }
 
-    // Build payload explicitly with dashboard_id
+    const toSafeInt = (value: any, fallback: number) => {
+      const n = Number(value);
+      return Number.isFinite(n) ? Math.trunc(n) : fallback;
+    };
+    const normalizedTabName = normalizeCommaSeparatedNames(form.tabname);
+
+    const visual = (form.visual_type as VisualType) ?? 'CHART';
+    const chartVariant = ((form.config_json as any)?.chart_variant as ChartType | undefined) ?? (form.chart_type as ChartType | undefined) ?? 'BAR';
+    const canonicalChartType: ChartType =
+      chartVariant === 'DONUT'
+        ? 'PIE'
+        : chartVariant === 'AREA' || chartVariant === 'SCATTER' || chartVariant === 'MULTI_SERIES_LINE'
+          ? 'LINE'
+          : chartVariant === 'HORIZONTAL_BAR' || chartVariant === 'STACKED_BAR' || chartVariant === 'COMBO'
+            ? 'BAR'
+            : chartVariant;
+
+    // Build normalized payload explicitly so layout fields are always posted.
+    const cfgOut: Record<string, any> = {
+      ...(form.config_json || {}),
+      tab_name: normalizedTabName,
+    };
+    if (visual === 'CHART') {
+      cfgOut.chart_variant = chartVariant;
+    } else {
+      delete cfgOut.chart_variant;
+    }
+    if (visual === 'MAP' || visual === 'CHART') {
+      delete cfgOut.panel_variant;
+    }
+
     const payload: Partial<Widget> = {
-      ...widgetForm,
-      dashboard_id: effectiveDashboardId,
-      tabname: (widgetForm.tabname || '').trim(),
-      config_json: {
-        ...(widgetForm.config_json || {}),
-        tab_name: (widgetForm.tabname || '').trim(),
-      },
+      dashboard_id: toSafeInt(effectiveDashboardId, 0),
+      title: String(form.title ?? '').trim(),
+      visual_type: visual,
+      chart_type: visual === 'CHART' ? canonicalChartType : null as any,
+      position_row: toSafeInt(form.position_row, 0),
+      position_col: toSafeInt(form.position_col, 0),
+      row_span: Math.max(1, toSafeInt(form.row_span, 2)),
+      col_span: Math.max(1, toSafeInt(form.col_span, 3)),
+      background_color: form.background_color,
+      data_source_id: form.data_source_id ?? null,
+      refresh_interval_sec: toSafeInt(form.refresh_interval_sec, 0),
+      is_visible: form.is_visible ?? true,
+      sort_order: toSafeInt(form.sort_order, 0),
+      tabname: normalizedTabName,
+      config_json: cfgOut,
+      interaction_config_json: form.interaction_config_json ?? null,
     };
 
     let updatedOrCreated: Widget;
-    if (widgetForm.id) {
-      updatedOrCreated = await apiFetch<Widget>(`/widgets/${widgetForm.id}`, {
+    if (form.id) {
+      updatedOrCreated = await apiFetch<Widget>(`/widgets/${form.id}`, {
         method: 'PUT',
         body: JSON.stringify(payload),
         headers: { 'X-User-Id': '1' },
       });
-      setWidgets(prev =>
-        prev.map(w => (w.id === updatedOrCreated.id ? updatedOrCreated : w)),
-      );
+      if (updatedOrCreated.id) {
+        updatedOrCreated = await apiFetch<Widget>(`/widgets/${updatedOrCreated.id}`, {
+          method: 'GET',
+          headers: { 'X-User-Id': '1' },
+        });
+      }
+      setWidgets(prev => prev.map(w => (w.id === updatedOrCreated.id ? updatedOrCreated : w)));
     } else {
       updatedOrCreated = await apiFetch<Widget>('/widgets', {
         method: 'POST',
         body: JSON.stringify(payload),
         headers: { 'X-User-Id': '1' },
       });
+
+      // Fail-safe: explicitly persist layout after create.
+      // Some backend paths/defaults may override POST layout fields.
+      if (updatedOrCreated.id) {
+        const layoutPersisted = await apiFetch<Widget>(`/widgets/${updatedOrCreated.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            position_row: payload.position_row,
+            position_col: payload.position_col,
+            row_span: payload.row_span,
+            col_span: payload.col_span,
+            tabname: payload.tabname,
+          }),
+          headers: { 'X-User-Id': '1' },
+        });
+        updatedOrCreated = layoutPersisted || updatedOrCreated;
+        updatedOrCreated = await apiFetch<Widget>(`/widgets/${updatedOrCreated.id}`, {
+          method: 'GET',
+          headers: { 'X-User-Id': '1' },
+        });
+      }
       setWidgets(prev => [...prev, updatedOrCreated]);
     }
 
@@ -2832,7 +3752,12 @@ async function loadDashboardFilterMappings() {
     setError(null);
     try {
       await apiFetch<void>(`/widgets/${id}`, { method: 'DELETE', headers: { 'X-User-Id': '1' } });
-      setWidgets(prev => prev.filter(w => w.id !== id));
+      setWidgets(prev =>
+        prev.filter(w => {
+          const wid = getWidgetNumericId(w);
+          return wid === null || wid !== id;
+        })
+      );
       setWidgetApiData(prev => {
         const newData = { ...prev };
         delete newData[id];
@@ -2848,9 +3773,61 @@ async function loadDashboardFilterMappings() {
         delete newData[id];
         return newData;
       });
+      // Keep table/grid state in sync with server truth.
+      await loadWidgets(activeTab === 'widgets' ? undefined : selectedDashboard?.id);
     } catch (e: any) {
       console.error(e);
       setError(e.message || 'Failed to delete widget');
+    }
+  }
+
+  async function deleteSelectedWidgets() {
+    if (selectedWidgetIds.length === 0) return;
+    if (!window.confirm(`Delete ${selectedWidgetIds.length} selected widget(s)?`)) return;
+    setError(null);
+    try {
+      const results = await Promise.allSettled(
+        selectedWidgetIds.map(id =>
+          apiFetch<void>(`/widgets/${id}`, { method: 'DELETE', headers: { 'X-User-Id': '1' } })
+        )
+      );
+      const failed = results.filter(result => result.status === 'rejected').length;
+      const deletedIds = selectedWidgetIds.filter((_, idx) => results[idx].status === 'fulfilled');
+      const deletedIdSet = new Set(deletedIds.map((id) => Number(id)));
+
+      if (deletedIds.length > 0) {
+        setWidgets(prev =>
+          prev.filter(w => {
+            const wid = getWidgetNumericId(w);
+            return wid === null || !deletedIdSet.has(wid);
+          })
+        );
+        setWidgetApiData(prev => {
+          const next = { ...prev };
+          deletedIds.forEach(id => delete next[id]);
+          return next;
+        });
+        setWidgetLoadingState(prev => {
+          const next = { ...prev };
+          deletedIds.forEach(id => delete next[id]);
+          return next;
+        });
+        setWidgetErrors(prev => {
+          const next = { ...prev };
+          deletedIds.forEach(id => delete next[id]);
+          return next;
+        });
+      }
+
+      setSelectedWidgetIds([]);
+      // Force refresh so Widget List reflects backend after bulk operations.
+      await loadWidgets(activeTab === 'widgets' ? undefined : selectedDashboard?.id);
+      if (failed > 0) {
+        setError(`Deleted ${deletedIds.length} widget(s). Failed to delete ${failed} widget(s).`);
+      }
+    } catch (e: any) {
+      console.error(e);
+      setError(e.message || 'Failed to delete selected widgets');
     }
   }
 
@@ -2875,7 +3852,7 @@ async function loadDashboardFilterMappings() {
       return;
     }
 
-    const payload = {
+  const payload: Record<string, any> = {
       ...formData,
       is_cached: formData.is_cached ? 1 : 0,
       cache_ttl_sec: formData.cache_ttl_sec || null,
@@ -3090,20 +4067,6 @@ async function loadDashboardFilterMappings() {
                       <div>
                         <h3 className="text-xl font-bold">{selectedDashboard.name}</h3>
                         <p className="text-gray-600">{selectedDashboard.description}</p>
-                        {(selectedDashboard.page_name || selectedDashboard.tab_name) && (
-                          <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                            {selectedDashboard.page_name && (
-                              <span className="px-2 py-1 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                Page: {selectedDashboard.page_name}
-                              </span>
-                            )}
-                            {selectedDashboard.tab_name && (
-                              <span className="px-2 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                Tab: {selectedDashboard.tab_name}
-                              </span>
-                            )}
-                          </div>
-                        )}
                       </div>
                       <div className="flex gap-2">
                         <button onClick={() => openEditDashboard(selectedDashboard)} className="px-3 py-1 bg-gray-100 rounded">Edit</button>
@@ -3112,19 +4075,41 @@ async function loadDashboardFilterMappings() {
                       </div>
                     </div>
 
+                    {tabNameOptions.length > 0 && (
+                      <div className="mb-4">
+                        <div className="flex flex-wrap gap-2">
+                          {tabNameOptions.map((tab) => (
+                            <button
+                              key={tab}
+                              onClick={() => setActiveWidgetTabName(tab)}
+                              className={`px-3 py-1 rounded-md text-sm border ${
+                                activeWidgetTabName === tab
+                                  ? 'bg-blue-600 text-white border-blue-600'
+                                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                              }`}
+                            >
+                              {tab}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="mt-6 w-full" style={{ minHeight: '600px' }}>
-                      {widgets.length === 0 ? (
+                      {visibleWidgetsForActiveTab.length === 0 ? (
                         <div className="p-8 bg-gray-50 rounded text-center text-gray-500">
-                          No widgets. Click "Add Widget" to create one.
+                          No widgets found for the selected tab.
                         </div>
                       ) : (
                         <GridLayout
                           className="layout"
-                          layout={layout}
+                          layout={layout.filter((l) => visibleWidgetsForActiveTab.some((w) => w.id?.toString() === l.i))}
                           cols={12}
                           rowHeight={120}
                           width={1400}
                           onLayoutChange={onLayoutChange}
+                          onResizeStop={onWidgetResizeStop}
+                          onDragStop={onWidgetDragStop}
                           isDraggable={!isDragMode}
                           isResizable={!isDragMode}
                           compactType="vertical"
@@ -3133,7 +4118,7 @@ async function loadDashboardFilterMappings() {
                           margin={[16, 16]}
                           containerPadding={[0, 0]}
                         >
-                          {widgets.map(w => {
+                          {visibleWidgetsForActiveTab.map(w => {
                             const ds = dataSources.find(ds => ds.id === w.data_source_id);
                             const apiData = w.id ? widgetApiData[w.id] : undefined;
                             const isLoading = w.id ? widgetLoadingState[w.id] : false;
@@ -3171,6 +4156,17 @@ async function loadDashboardFilterMappings() {
               <div className="px-6 py-4 border-b flex justify-between items-center">
                 <h3 className="text-lg font-medium">Widgets</h3>
                 <div className="flex gap-2">
+                  <button
+                    onClick={deleteSelectedWidgets}
+                    disabled={selectedWidgetIds.length === 0}
+                    className={`px-3 py-1 rounded ${
+                      selectedWidgetIds.length === 0
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        : 'bg-red-600 text-white hover:bg-red-700'
+                    }`}
+                  >
+                    Delete Selected ({selectedWidgetIds.length})
+                  </button>
                   <button onClick={openCreateWidgetForSelectedDashboard} className="px-3 py-1 bg-blue-600 text-white rounded">Add Widget (for selected dashboard)</button>
                   <button onClick={() => loadWidgets()} className="px-3 py-1 bg-gray-200 rounded">Refresh</button>
                 </div>
@@ -3180,6 +4176,24 @@ async function loadDashboardFilterMappings() {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
+                      <th className="px-4 py-3 text-left">
+                        <input
+                          type="checkbox"
+                          aria-label="Select all widgets"
+                          checked={widgets.length > 0 && selectedWidgetIds.length === widgets.length}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedWidgetIds(
+                                widgets
+                                  .map((w) => getWidgetNumericId(w))
+                                  .filter((id): id is number => id !== null)
+                              );
+                            } else {
+                              setSelectedWidgetIds([]);
+                            }
+                          }}
+                        />
+                      </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dashboard</th>
@@ -3190,20 +4204,57 @@ async function loadDashboardFilterMappings() {
                   <tbody className="bg-white divide-y divide-gray-200">
                     {widgets.map(w => (
                       <tr key={w.id}>
+                        <td className="px-4 py-4 whitespace-nowrap">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select widget ${w.title ?? w.id}`}
+                            checked={(() => {
+                              const id = getWidgetNumericId(w);
+                              return id !== null && selectedWidgetIds.includes(id);
+                            })()}
+                            onChange={(e) => {
+                              const id = getWidgetNumericId(w);
+                              if (id === null) return;
+                              setSelectedWidgetIds(prev =>
+                                e.target.checked
+                                  ? Array.from(new Set([...prev, id]))
+                                  : prev.filter(existingId => existingId !== id)
+                              );
+                            }}
+                          />
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{w.title}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {w.visual_type}
-                          {w.chart_type && ` (${w.chart_type})`}
+                          {(w.config_json?.chart_variant || w.chart_type) && ` (${String(w.config_json?.chart_variant || w.chart_type)})`}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{dashboards.find(d => d.id === w.dashboard_id)?.name ?? '—'}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Row {w.position_row}, Col {w.position_col}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <button className="text-blue-600 mr-3" onClick={() => openEditWidget(w)}>Edit</button>
-                          <button className="text-red-600" onClick={() => deleteWidget(w.id)}>Delete</button>
+                          <button
+                            className="text-blue-600 mr-3 inline-flex items-center justify-center hover:text-blue-800"
+                            onClick={() => openEditWidget(w)}
+                            aria-label={`Edit widget ${w.title ?? w.id}`}
+                            title="Edit"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                              <path d="M3 17.25V21h3.75l11-11.03-3.75-3.75L3 17.25zm17.71-10.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66z" />
+                            </svg>
+                          </button>
+                          <button
+                            className="text-red-600 inline-flex items-center justify-center hover:text-red-800"
+                            onClick={() => deleteWidget(w.id)}
+                            aria-label={`Delete widget ${w.title ?? w.id}`}
+                            title="Delete"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                              <path d="M6 7h12v2H6V7zm2 3h8l-1 10H9L8 10zm3-6h2l1 1h4v2H6V5h4l1-1z" />
+                            </svg>
+                          </button>
                         </td>
                       </tr>
                     ))}
-                    {widgets.length === 0 && <tr><td colSpan={5} className="px-6 py-4 text-center text-gray-500">No widgets found.</td></tr>}
+                    {widgets.length === 0 && <tr><td colSpan={6} className="px-6 py-4 text-center text-gray-500">No widgets found.</td></tr>}
                   </tbody>
                 </table>
               </div>
