@@ -31,6 +31,14 @@ export default function AssignFiltersTab({ apiBaseUrl }: Props) {
   const [error, _setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!status) return;
+    const timer = setTimeout(() => {
+      setStatus(null);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [status]);
+
   const _selectedDashboard = useMemo(() => {
     if (selectedDashboardId === "") return null;
     return dashboards.find(d => d.id === selectedDashboardId) ?? null;
