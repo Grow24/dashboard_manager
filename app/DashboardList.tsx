@@ -767,6 +767,26 @@ const DashboardList: React.FC = () => {
     selectedIds: number[],
     values: Record<number, unknown>
   ): string => {
+    const resolveFilterField = (filter: FilterItem): string => {
+      const rawField =
+        (filter as any).field ??
+        (filter as any).db_field ??
+        (filter as any).column ??
+        (filter as any).filter_field ??
+        '';
+      if (typeof rawField === 'string' && rawField.trim() !== '') {
+        return rawField.trim();
+      }
+      // Fallback from label/name: "Country Filter" -> "country"
+      const rawName = String(filter.name ?? '').trim();
+      const withoutSuffix = rawName.replace(/\s*filter\s*$/i, '');
+      const normalized = withoutSuffix
+        .replace(/[^a-zA-Z0-9_ ]+/g, '')
+        .trim()
+        .replace(/\s+/g, '_')
+        .toLowerCase();
+      return normalized || 'name';
+    };
     const selected = filtersPool.filter((f) => selectedIds.includes(f.id));
     if (selected.length === 0) return '';
 
@@ -785,7 +805,7 @@ const DashboardList: React.FC = () => {
     selected.forEach((filter) => {
       const v = values[filter.id];
       if (!v || (Array.isArray(v) && v.length === 0)) return;
-      const field = String((filter as any).field ?? filter.name ?? '').trim().toLowerCase() || 'name';
+      const field = resolveFilterField(filter);
       const logical = String((filter as any).logical_operator || 'AND').toUpperCase() === 'OR' ? 'OR' : 'AND';
       const operator = String((filter as any).condition_operator || ((filter.type || '').toLowerCase() === 'text' ? 'LIKE' : '=')).toUpperCase();
 
@@ -938,16 +958,23 @@ const DashboardList: React.FC = () => {
     }
   };
   useEffect(() => {
-    assignedFiltersForDashboard.forEach((filter) => {
-      if (
+    // Load dynamic options for both dashboard-level and widget-level assigned filters.
+    const dynamicFilters = allFilters.filter(
+      (filter) =>
         (filter.type || '').toLowerCase() === 'select' &&
         String(filter.webapiType || '').toLowerCase() === 'dynamic' &&
-        filter.webapi
-      ) {
-        fetchDynamicOptions(filter.id, filter.webapi);
+        !!filter.webapi
+    );
+    dynamicFilters.forEach((filter) => {
+      if (!dynamicOptions[filter.id] && !loadingOptions[filter.id]) {
+        fetchDynamicOptions(filter.id, String(filter.webapi));
       }
     });
-  }, [assignedFiltersForDashboard.map((f) => `${f.id}:${f.webapi || ''}:${f.webapiType || ''}`).join('|')]);
+  }, [
+    allFilters.map((f) => `${f.id}:${f.webapi || ''}:${f.webapiType || ''}:${f.type || ''}`).join('|'),
+    Object.keys(dynamicOptions).join(','),
+    Object.keys(loadingOptions).join(','),
+  ]);
   const getFilterOptions = (filter: FilterItem): DynamicOption[] => {
     const webapiType = String(filter.webapiType || '').toLowerCase();
     if (webapiType === 'static') {
